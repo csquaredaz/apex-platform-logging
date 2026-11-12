@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description
+  >Lets PlatformEventLogger publish this user's log entries. EventBus.publish checks Create on Log_Event__e for the running user, even from Apex (ADR 0003). Read is required with Create. Without this permission set, entries fall back to the debug log.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Log Event Publisher</label>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>false</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Log_Event__e</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+</PermissionSet>
