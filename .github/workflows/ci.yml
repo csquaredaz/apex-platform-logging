@@ -115,12 +115,9 @@ jobs:
             [ "$job" = "success" ] || continue
             mkdir -p tests/apex
             gh run download "$run_id" --name apex-test-results --dir tests/apex || continue
-            coverage=$(node -e '
-              const fs = require("fs");
-              const runId = fs.readFileSync("tests/apex/test-run-id.txt", "utf8").trim();
-              const j = JSON.parse(fs.readFileSync(`tests/apex/test-result-${runId}.json`, "utf8"));
-              console.log(parseInt((j.result || j).summary.orgWideCoverage, 10) || 0);
-            ') || continue
+            # package-coverage.txt is this repo's own coverage, written by the scratch-org job.
+            coverage=$(tr -dc '0-9' < tests/apex/package-coverage.txt) || continue
+            [ -n "$coverage" ] || continue
             echo "reuse=true" >> "$GITHUB_OUTPUT"
             echo "coverage=$coverage" >> "$GITHUB_OUTPUT"
             echo "### Apex tests"$'\n\n'"Reused run [$run_id](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/$run_id) for PR head \`${pr_head:0:7}\` (identical tree): ${coverage}% coverage. No scratch org created." >> "$GITHUB_STEP_SUMMARY"
@@ -181,21 +178,29 @@ jobs:
       - name: Run Apex tests with coverage
         id: apex-tests
         run: |
-          # RunLocalTests fails with INVALID_INPUT when the org has no tests, which is true until a
-          # repo's first Apex lands. Skip (and say so) only when no package directory holds a test.
+          # Run this repo's tests only, and gate on this repo's classes only. A dependency without a
+          # namespace (apex-core-lib) counts as local code, so RunLocalTests would also run its tests,
+          # and some of them assert defaults that this repo's DI bindings deliberately override.
+          # This matches what a package version build measures: the package's own tests and classes.
           dirs=$(node -p 'require("./sfdx-project.json").packageDirectories.map((d) => d.path).join(" ")')
+          # Test classes follow the <Name>Test.cls convention; @IsTest fixtures without tests don't.
           # shellcheck disable=SC2086 # word splitting over the directory list is intended
-          if ! grep -rqli --include='*.cls' '@istest' $dirs; then
+          tests=$(find $dirs -name '*Test.cls' -exec grep -li '@istest' {} + | xargs -n1 basename | sed 's/\.cls$//' | sort | paste -sd, - || true)
+          if [ -z "$tests" ]; then
             echo "### Apex tests"$'\n\n'"No Apex test classes in the repo yet, so this step was skipped." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          # The classes this repo ships, measured for coverage: not tests, and not interfaces (no lines).
+          # shellcheck disable=SC2086
+          find $dirs -name '*.cls' -exec grep -Li '@istest' {} + | xargs grep -LiE '^\s*(public|global)\s+interface\s' \
+            | xargs -n1 basename | sed 's/\.cls$//' | sort > "$RUNNER_TEMP/package-classes.txt" || true
           mkdir -p tests/apex
           # Keep going on test failures so the summary is still written; the gate below fails the job.
           # Stdout is dropped because it names the scratch org (Id, username, instance); results are
           # read from --output-dir instead, and scrubbed below before they become an artifact.
           sf apex run test \
             --target-org ci-org \
-            --test-level RunLocalTests \
+            --class-names "$tests" \
             --code-coverage \
             --result-format json \
             --output-dir tests/apex \
@@ -204,22 +209,31 @@ jobs:
           rm -f tests/apex/*-junit.xml
           # Coverage goes to the job summary, an artifact and (on main) the badge job; no third-party
           # service. The CLI writes test-result-<runId>.json, with the run Id in test-run-id.txt.
-          # Gate: every test passes and org-wide coverage is at least MIN_COVERAGE (CLAUDE.md floor).
+          # Gate: every test passes and coverage of this repo's classes is at least MIN_COVERAGE.
           MIN_COVERAGE=90 node -e '
             const fs = require("fs");
             const runId = fs.readFileSync("tests/apex/test-run-id.txt", "utf8").trim();
             const file = `tests/apex/test-result-${runId}.json`;
             const j = JSON.parse(fs.readFileSync(file, "utf8"));
-            const s = (j.result || j).summary;
+            const r = j.result || j;
+            const s = r.summary;
             // Drop the org details before the file is uploaded; the reuse job needs only coverage.
             for (const key of ["hostname", "orgId", "userId", "username"]) delete s[key];
             fs.writeFileSync(file, JSON.stringify(j, null, 2));
-            const coverage = parseInt(s.orgWideCoverage, 10) || 0;
+            const own = new Set(fs.readFileSync(process.env.RUNNER_TEMP + "/package-classes.txt", "utf8").split("\n").filter(Boolean));
+            const rows = ((r.coverage && r.coverage.coverage) || []).filter((c) => own.has(c.name));
+            const total = rows.reduce((n, c) => n + c.totalLines, 0);
+            const covered = rows.reduce((n, c) => n + c.totalCovered, 0);
+            // A class no test touches has no coverage row at all, so fail on it instead of ignoring it.
+            const missing = [...own].filter((name) => !rows.some((c) => c.name === name));
+            const coverage = total === 0 ? 0 : Math.floor((100 * covered) / total);
+            fs.writeFileSync("tests/apex/package-coverage.txt", `${coverage}\n`);
             const min = Number(process.env.MIN_COVERAGE);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-              `### Apex tests\n\n| Outcome | Tests | Failing | Org-wide coverage | Floor |\n|---|---|---|---|---|\n| ${s.outcome} | ${s.testsRan} | ${s.failing} | ${coverage}% | ${min}% |\n`);
+              `### Apex tests\n\n| Outcome | Tests | Failing | Package coverage | Floor |\n|---|---|---|---|---|\n| ${s.outcome} | ${s.testsRan} | ${s.failing} | ${coverage}% | ${min}% |\n`);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `coverage=${coverage}\n`);
             if (s.outcome !== "Passed") { console.error(`${s.failing} Apex test(s) failed.`); process.exit(1); }
+            if (missing.length) { console.error(`No test touches: ${missing.join(", ")}.`); process.exit(1); }
             if (coverage < min) { console.error(`Coverage ${coverage}% is below the ${min}% floor.`); process.exit(1); }
           '
 
