@@ -1,0 +1,12 @@
+{
+  "orgName": "apex-platform-logging",
+  "edition": "Developer",
+  "language": "en_US",
+  "hasSampleData": false,
+  "features": [],
+  "settings": {
+    "lightningExperienceSettings": {
+      "enableS1DesktopEnabled": true
+    }
+  }
+}

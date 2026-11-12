@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ruleset
+  name="portfolio-apex-naming"
+  xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd"
+>
+  <description>MethodNamingConventions with test names in method_condition_result form.</description>
+  <rule
+    name="TestAwareMethodNamingConventions"
+    language="apex"
+    class="net.sourceforge.pmd.lang.apex.rule.codestyle.MethodNamingConventionsRule"
+    message="The {0} name ''{1}'' doesn''t match ''{2}''"
+  >
+    <description>Camel case for methods; test methods may use method_condition_result.</description>
+    <priority>3</priority>
+    <properties>
+      <property name="testPattern" value="[a-z][a-zA-Z0-9]*(_[a-zA-Z0-9]+){0,3}" />
+    </properties>
+  </rule>
+</ruleset>

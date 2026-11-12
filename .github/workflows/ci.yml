@@ -1,0 +1,281 @@
+name: ci
+
+# Free-only pipeline: GitHub-hosted runners on a public repo, open-source tooling and a free
+# Developer Edition Dev Hub. No paid services, coverage SaaS or model calls.
+#
+# Developer Edition Dev Hub budget: 3 active and 6 daily scratch orgs (rolling 24h).
+# To stay inside it:
+#   - the scratch-org job runs only after static checks pass, never on draft PRs,
+#   - concurrency cancels superseded runs before they create an org,
+#   - the org lives for one day and is deleted in an always() step.
+#   - a push to main reuses the PR's scratch-org result when the merge commit's tree is identical
+#     to a PR head that already passed (the reuse job), so a PR costs one org, not two.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  SF_CLI_VERSION: "2.157.8"
+  GITLEAKS_VERSION: "8.30.1"
+  CODE_ANALYZER_VERSION: "5.16.0"
+
+jobs:
+  static:
+    name: static checks (prettier, eslint, jest, code analyzer, gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # PMD (Apex rules in Code Analyzer) needs a JDK.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run test:unit
+      - name: Install Salesforce CLI and Code Analyzer
+        run: |
+          npm install -g "@salesforce/cli@${SF_CLI_VERSION}"
+          sf plugins install "@salesforce/plugin-code-analyzer@${CODE_ANALYZER_VERSION}"
+      - name: Code Analyzer (fail on High or Critical)
+        run: >-
+          sf code-analyzer run
+          --config-file code-analyzer.yml
+          --rule-selector Recommended
+          --severity-threshold 2
+          --view table
+          --output-file code-analyzer-results.html
+      - name: Upload Code Analyzer report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: code-analyzer-results
+          path: code-analyzer-results.html
+          if-no-files-found: ignore
+      - name: Secret scan (gitleaks, full history)
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+  # Saves a scratch org per merge. On a push to main, if HEAD is a merge commit whose tree is
+  # identical to its PR-head parent, and that PR head has a ci run whose scratch-org job passed,
+  # the identical code was already deployed and tested. Reuse that run's result and coverage
+  # instead of creating another org. Anything else (squash merge, a PR branch behind main, no green
+  # run, missing artifact) falls through to a fresh scratch-org run.
+  reuse:
+    name: reuse PR scratch-org result (main only)
+    needs: static
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reuse: ${{ steps.check.outputs.reuse }}
+      coverage: ${{ steps.check.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Find a green PR run for the identical tree
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr_head=$(git rev-parse --verify --quiet HEAD^2 || true)
+          if [ -z "$pr_head" ]; then
+            echo "HEAD is not a merge commit; running a fresh scratch org."; exit 0
+          fi
+          if [ "$(git rev-parse HEAD^{tree})" != "$(git rev-parse "$pr_head^{tree}")" ]; then
+            echo "The merge changed the tree (the PR branch was behind main); running a fresh scratch org."; exit 0
+          fi
+          for run_id in $(gh run list --workflow ci.yml --commit "$pr_head" --status success --json databaseId -q '.[].databaseId'); do
+            job=$(gh run view "$run_id" --json jobs -q '.jobs[] | select(.name == "scratch org (deploy + Apex tests)") | .conclusion')
+            [ "$job" = "success" ] || continue
+            mkdir -p tests/apex
+            gh run download "$run_id" --name apex-test-results --dir tests/apex || continue
+            coverage=$(node -e '
+              const fs = require("fs");
+              const runId = fs.readFileSync("tests/apex/test-run-id.txt", "utf8").trim();
+              const j = JSON.parse(fs.readFileSync(`tests/apex/test-result-${runId}.json`, "utf8"));
+              console.log(parseInt((j.result || j).summary.orgWideCoverage, 10) || 0);
+            ') || continue
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+            echo "coverage=$coverage" >> "$GITHUB_OUTPUT"
+            echo "### Apex tests"$'\n\n'"Reused run [$run_id](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/$run_id) for PR head \`${pr_head:0:7}\` (identical tree): ${coverage}% coverage. No scratch org created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          done
+          echo "No green scratch-org run for $pr_head; running a fresh scratch org."
+
+  scratch-org:
+    name: scratch org (deploy + Apex tests)
+    needs: [static, reuse]
+    # !cancelled() lets this job run when reuse is skipped (every pull_request event) but not after a cancel.
+    if: >-
+      !cancelled() && needs.static.result == 'success'
+      && needs.reuse.outputs.reuse != 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      coverage: ${{ steps.apex-tests.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install -g "@salesforce/cli@${SF_CLI_VERSION}"
+
+      # JWT bearer auth to the Dev Hub. Every value comes from repository secrets; the key file
+      # exists only on the runner and is deleted in the cleanup step.
+      - name: Authenticate Dev Hub (JWT)
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+          SF_CONSUMER_KEY: ${{ secrets.SF_CONSUMER_KEY }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+        run: |
+          set -o pipefail
+          printf '%s\n' "$SF_JWT_KEY" > "$RUNNER_TEMP/server.key"
+          # The login prints the Dev Hub org Id; the redact filter masks it in the public log.
+          sf org login jwt \
+            --client-id "$SF_CONSUMER_KEY" \
+            --jwt-key-file "$RUNNER_TEMP/server.key" \
+            --username "$SF_DEVHUB_USERNAME" \
+            --alias devhub \
+            --set-default-dev-hub 2>&1 | bash scripts/redact-org-details.sh
+
+      - name: Create scratch org, install dependencies, deploy
+        # Signup, install and permission-set output name the scratch org; mask it in the log.
+        run: |
+          set -o pipefail
+          bash scripts/org-setup.sh ci-org 2>&1 | bash scripts/redact-org-details.sh
+        env:
+          SF_SCRATCH_DURATION: "1"
+          # The Dev Hub authenticates through an External Client App, which scratch-org signup
+          # can't replicate. These official CLI variables (CLI >= 2.147.7) make signup use the
+          # built-in Salesforce CLI connected app instead. See forcedotcom/cli#3515.
+          SF_SCRATCH_SIGNUP_CONNECTED_APP: PlatformCLI
+          SF_SCRATCH_SIGNUP_CALLBACK_URL: http://localhost:1717/OauthRedirect
+
+      - name: Run Apex tests with coverage
+        id: apex-tests
+        run: |
+          # RunLocalTests fails with INVALID_INPUT when the org has no tests, which is true until a
+          # repo's first Apex lands. Skip (and say so) only when no package directory holds a test.
+          dirs=$(node -p 'require("./sfdx-project.json").packageDirectories.map((d) => d.path).join(" ")')
+          # shellcheck disable=SC2086 # word splitting over the directory list is intended
+          if ! grep -rqli --include='*.cls' '@istest' $dirs; then
+            echo "### Apex tests"$'\n\n'"No Apex test classes in the repo yet, so this step was skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir -p tests/apex
+          # Keep going on test failures so the summary is still written; the gate below fails the job.
+          # Stdout is dropped because it names the scratch org (Id, username, instance); results are
+          # read from --output-dir instead, and scrubbed below before they become an artifact.
+          sf apex run test \
+            --target-org ci-org \
+            --test-level RunLocalTests \
+            --code-coverage \
+            --result-format json \
+            --output-dir tests/apex \
+            --wait 30 > /dev/null || true
+          # The JUnit report repeats the org details and nothing reads it.
+          rm -f tests/apex/*-junit.xml
+          # Coverage goes to the job summary, an artifact and (on main) the badge job; no third-party
+          # service. The CLI writes test-result-<runId>.json, with the run Id in test-run-id.txt.
+          # Gate: every test passes and org-wide coverage is at least MIN_COVERAGE (CLAUDE.md floor).
+          MIN_COVERAGE=90 node -e '
+            const fs = require("fs");
+            const runId = fs.readFileSync("tests/apex/test-run-id.txt", "utf8").trim();
+            const file = `tests/apex/test-result-${runId}.json`;
+            const j = JSON.parse(fs.readFileSync(file, "utf8"));
+            const s = (j.result || j).summary;
+            // Drop the org details before the file is uploaded; the reuse job needs only coverage.
+            for (const key of ["hostname", "orgId", "userId", "username"]) delete s[key];
+            fs.writeFileSync(file, JSON.stringify(j, null, 2));
+            const coverage = parseInt(s.orgWideCoverage, 10) || 0;
+            const min = Number(process.env.MIN_COVERAGE);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `### Apex tests\n\n| Outcome | Tests | Failing | Org-wide coverage | Floor |\n|---|---|---|---|---|\n| ${s.outcome} | ${s.testsRan} | ${s.failing} | ${coverage}% | ${min}% |\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `coverage=${coverage}\n`);
+            if (s.outcome !== "Passed") { console.error(`${s.failing} Apex test(s) failed.`); process.exit(1); }
+            if (coverage < min) { console.error(`Coverage ${coverage}% is below the ${min}% floor.`); process.exit(1); }
+          '
+
+      - name: Upload Apex test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: apex-test-results
+          path: tests/apex
+          if-no-files-found: ignore
+
+      - name: Delete scratch org and key
+        if: always()
+        run: |
+          sf org delete scratch --target-org ci-org --no-prompt 2>&1 | bash scripts/redact-org-details.sh || true
+          rm -f "$RUNNER_TEMP/server.key"
+
+  # Live coverage badge without a SaaS account (a shields.io endpoint, no Codecov). Runs only for a
+  # green push to main and is the only job with write access. It appends to the orphan `badges`
+  # branch and never force-pushes. The README reads the file through the endpoint badge.
+  coverage-badge:
+    name: coverage badge (main only)
+    needs: [scratch-org, reuse]
+    # The coverage check skips the job before any Apex tests exist, rather than publishing 0%.
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && (needs.scratch-org.result == 'success' || needs.reuse.outputs.reuse == 'true')
+      && (needs.scratch-org.outputs.coverage != '' || needs.reuse.outputs.coverage != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write coverage.json to the badges branch
+        env:
+          COVERAGE: ${{ needs.scratch-org.outputs.coverage || needs.reuse.outputs.coverage }}
+        run: |
+          : "${COVERAGE:?neither the scratch-org job nor the reuse job reported coverage}"
+          if git ls-remote --exit-code --heads origin badges >/dev/null; then
+            git fetch --depth 1 origin badges:badges
+            git switch badges
+          else
+            git switch --orphan badges
+            git rm -rf --quiet . || true
+          fi
+          if   [ "$COVERAGE" -ge 90 ]; then color=brightgreen
+          elif [ "$COVERAGE" -ge 75 ]; then color=yellow
+          else color=red; fi
+          printf '{"schemaVersion":1,"label":"apex coverage","message":"%s%%","color":"%s"}\n' \
+            "$COVERAGE" "$color" > coverage.json
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "Coverage unchanged at ${COVERAGE}%."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --quiet -m "chore(badges): apex coverage ${COVERAGE}%"
+          git push origin badges
