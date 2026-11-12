@@ -131,4 +131,46 @@ private class LogBufferTest {
 
     Assert.areEqual(first, LogBuffer.current(), 'Every logger shares one buffer per transaction');
   }
+
+  @IsTest
+  static void add_whileSuppressed_writesToDebugLogInstead() {
+    LogBuffer buffer = bufferOfSize(1);
+
+    LogBuffer.suppress();
+    buffer.add(entry('inside the subscriber'));
+    LogBuffer.resume();
+
+    publisherMock.verify('publish', 0);
+    Assert.areEqual(0, buffer.size(), 'A suppressed entry is not buffered either');
+    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'It went to the debug log');
+    Assert.areEqual(LogBuffer.SUPPRESSED_REASON, LogBuffer.lastFallbackReason, 'The reason says why');
+  }
+
+  @IsTest
+  static void flush_whileSuppressed_drainsToDebugLog() {
+    LogBuffer buffer = bufferOfSize(5);
+    buffer.add(entry('before suppression'));
+
+    LogBuffer.suppress();
+    buffer.flush();
+    LogBuffer.resume();
+
+    publisherMock.verify('publish', 0);
+    Assert.areEqual(0, buffer.size(), 'The buffer is drained');
+    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'Buffered entries are never published while suppressed');
+  }
+
+  @IsTest
+  static void resume_afterSuppress_publishesAgain() {
+    LogBuffer buffer = bufferOfSize(1);
+    publisherMock.stubReturn('publish', LoggerTestFixtures.successes(1));
+
+    LogBuffer.suppress();
+    Assert.isTrue(LogBuffer.isSuppressed(), 'suppress() turns publishing off');
+    LogBuffer.resume();
+    buffer.add(entry('after the subscriber'));
+
+    Assert.isFalse(LogBuffer.isSuppressed(), 'resume() turns it back on');
+    publisherMock.verify('publish', 1);
+  }
 }

@@ -74,7 +74,42 @@ public class LoggerTestFixtures {
    * @param target The user to assign it to.
    */
   public static void assignPublisherPermissionSet(User target) {
-    PermissionSet publisher = [SELECT Id FROM PermissionSet WHERE Name = 'Log_Event_Publisher' LIMIT 1];
-    insert as system new PermissionSetAssignment(AssigneeId = target.Id, PermissionSetId = publisher.Id);
+    assignPermissionSet(target, 'Log_Event_Publisher');
+  }
+
+  /**
+   * @description Assigns one of the packaged permission sets.
+   * @param target The user to assign it to.
+   * @param permissionSetName The permission set API name, for example `Log_Viewer`.
+   */
+  public static void assignPermissionSet(User target, String permissionSetName) {
+    PermissionSet permissionSet = [SELECT Id FROM PermissionSet WHERE Name = :permissionSetName LIMIT 1];
+    insert as system new PermissionSetAssignment(AssigneeId = target.Id, PermissionSetId = permissionSet.Id);
+  }
+
+  /**
+   * @description An in-memory event as the subscriber receives it. `CreatedById` and `EventUuid`
+   * are read-only, so the event is deserialised.
+   * @param requestId The request Id, or null.
+   * @param sequence The sequence, or null.
+   * @param eventUuid The event UUID, or null.
+   * @return The event, created by the running user.
+   */
+  public static Log_Event__e deliveredEvent(String requestId, Integer sequence, String eventUuid) {
+    Map<String, Object> fields = new Map<String, Object>{
+      'attributes' => new Map<String, Object>{ 'type' => 'Log_Event__e' },
+      'CreatedById' => UserInfo.getUserId(),
+      'EventUuid' => eventUuid,
+      'Request_Id__c' => requestId,
+      'Sequence__c' => sequence,
+      'Level__c' => 'ERROR',
+      'Message__c' => 'Booking shipment for order 42',
+      'Exception_Type__c' => 'System.DmlException',
+      'Exception_Message__c' => 'Required field missing',
+      'Stack_Trace__c' => 'Class.ShipmentService.book: line 7',
+      'Quiddity__c' => 'SYNCHRONOUS',
+      'Logged_At__c' => Datetime.newInstanceGmt(2026, 11, 12, 9, 30, 0)
+    };
+    return (Log_Event__e) JSON.deserialize(JSON.serialize(fields), Log_Event__e.class);
   }
 }

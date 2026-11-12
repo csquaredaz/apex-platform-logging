@@ -11,6 +11,10 @@
  * affected entries go to the debug log instead. A `LimitException` can't be caught in Apex, which
  * is why the limit is checked before publishing rather than handled after.
  *
+ * Suppression (ADR 0005, D12): between `suppress()` and `resume()`, entries go to the debug log
+ * and are never published. `LogEventsDomain` suppresses around persistence, so logging inside the
+ * subscriber, including A's `TriggerDispatcher` warnings, can't publish more log events.
+ *
  * Publishing needs Create on `Log_Event__e` for the running user, even from Apex, so every user
  * whose code logs needs the `Log_Event_Publisher` permission set (ADR 0003).
  * @group Logging
@@ -25,7 +29,10 @@ public with sharing class LogBuffer {
   /** @description Added to an access failure, because a missing assignment is the usual cause. */
   public static final String PERMISSION_HINT = 'Assign the Log_Event_Publisher permission set to this user.';
 
+  /** @description The fallback reason for entries logged while publishing is suppressed. */
+  public static final String SUPPRESSED_REASON = 'publishing suppressed in the log subscriber';
   private static LogBuffer instance;
+  private static Boolean suppressed = false;
 
   @TestVisible
   private static Integer publishCallsLeftOverride;
@@ -57,6 +64,27 @@ public with sharing class LogBuffer {
     instance = new LogBuffer(publisher);
   }
 
+  /**
+   * @description Stops publishing for this transaction until `resume()`: new entries, and any
+   * flushed while suppressed, go to the debug log. Pair every call with `resume()` in `finally`.
+   */
+  public static void suppress() {
+    suppressed = true;
+  }
+
+  /** @description Turns publishing back on after `suppress()`. Safe to call when not suppressed. */
+  public static void resume() {
+    suppressed = false;
+  }
+
+  /**
+   * @description Whether publishing is suppressed.
+   * @return True between `suppress()` and `resume()`.
+   */
+  public static Boolean isSuppressed() {
+    return suppressed;
+  }
+
   private LogBuffer(ILogEventPublisher publisher) {
     this.publisher = publisher;
   }
@@ -70,7 +98,8 @@ public with sharing class LogBuffer {
       return;
     }
     entries.add(entry);
-    if (entries.size() >= LoggingSettings.current().bufferSize) {
+    // While suppressed, flush at once: it drains the entry to the debug log.
+    if (suppressed || entries.size() >= LoggingSettings.current().bufferSize) {
       flush();
     }
   }
@@ -94,6 +123,10 @@ public with sharing class LogBuffer {
     List<LogEntry> batch = new List<LogEntry>(entries);
     entries.clear();
 
+    if (suppressed) {
+      writeToDebugLog(batch, SUPPRESSED_REASON);
+      return;
+    }
     if (publishCallsLeft() <= PUBLISH_CALLS_RESERVED) {
       writeToDebugLog(batch, 'publish-immediate limit reserve reached');
       return;
