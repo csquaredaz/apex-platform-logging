@@ -1,0 +1,20 @@
+# Salesforce CLI state and auth: never commit
+.sf/
+.sfdx/
+*.key
+*.pem
+.env
+.env.*
+server.key
+
+# Dependencies and test output
+node_modules/
+coverage/
+tests/apex/
+code-analyzer-results.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.log
