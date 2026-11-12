@@ -1,0 +1,15 @@
+# Gitleaks configuration shared by pre-commit and CI.
+# Extends the default ruleset and adds one rule for a gap found while auditing a legacy repo:
+# secrets stored as Custom Metadata *values* in *.md-meta.xml are invisible to the generic rules,
+# because the secret sits on a different line from the field name.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "salesforce-custom-metadata-secret"
+description = "Secret-shaped value stored in a Custom Metadata record field named like a credential"
+path = '''\.md-meta\.xml$'''
+regex = '''(?i)<field>[A-Za-z0-9_]*(token|secret|password|api_?key|private_?key|client_?secret|key)[A-Za-z0-9_]*__c</field>\s*<value[^>]*>([^<\s]{12,})</value>'''
+secretGroup = 2
+keywords = ["<field>"]

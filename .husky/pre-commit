@@ -1,0 +1,6 @@
+npx lint-staged
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --no-banner --redact --config .gitleaks.toml
+else
+  echo "pre-commit: gitleaks not installed (brew install gitleaks); CI will still scan." >&2
+fi

@@ -1,0 +1,39 @@
+{
+  "name": "apex-platform-logging",
+  "private": true,
+  "description": "Platform Event logging, persistence and Slack Block Kit alerts that plug into the ILogger and IAlertSink ports of apex-core-lib.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "format": "prettier --write \"**/*.{cls,trigger,js,html,css,json,md,xml,yml}\"",
+    "format:check": "prettier --check \"**/*.{cls,trigger,js,html,css,json,md,xml,yml}\"",
+    "lint": "eslint --no-error-on-unmatched-pattern \"**/lwc/**/*.js\"",
+    "test:unit": "sfdx-lwc-jest --coverage",
+    "analyze": "sf code-analyzer run --config-file code-analyzer.yml --rule-selector Recommended --severity-threshold 2 --view table",
+    "org:setup": "bash scripts/org-setup.sh",
+    "org:test": "sf apex run test --test-level RunLocalTests --code-coverage --result-format human --wait 30",
+    "org:delete": "sf org delete scratch --no-prompt",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "@lwc/eslint-plugin-lwc": "3.5.0",
+    "@prettier/plugin-xml": "3.4.2",
+    "@salesforce/eslint-config-lwc": "4.1.2",
+    "@salesforce/eslint-plugin-lightning": "2.0.0",
+    "@salesforce/sfdx-lwc-jest": "7.9.0",
+    "eslint": "9.39.5",
+    "eslint-plugin-jest": "29.17.0",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "prettier": "3.10.0",
+    "prettier-plugin-apex": "2.3.0"
+  },
+  "lint-staged": {
+    "**/*.{cls,trigger,js,html,css,json,md,xml,yml}": "prettier --write",
+    "**/lwc/**/*.js": "eslint"
+  }
+}

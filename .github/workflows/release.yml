@@ -1,0 +1,207 @@
+name: release
+
+# Builds and promotes the apex-platform-logging unlocked package. Free only: GitHub-hosted runners and the
+# free Developer Edition Dev Hub, which allows 6 package version creates per day.
+#
+#   build:   pushing a tag vX.Y.Z creates a beta package version with code coverage, checks the
+#            platform's 75% gate, and publishes a GitHub pre-release with the install command.
+#   promote: run this workflow by hand with the 04t Id from that pre-release. Promotion is
+#            irreversible (a promoted version can't be deleted), so it is never automatic.
+#
+# Repos that publish no package delete this file (see the scaffold SKILL.md).
+#
+# The tag must match the major.minor.patch of versionNumber in sfdx-project.json, so the tag and
+# the package version can't drift apart.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: "Subscriber package version Id to promote (04t…), from the pre-release notes"
+        required: true
+        type: string
+      tag:
+        description: "The release tag the version was built from, for example v1.0.0"
+        required: true
+        type: string
+      confirm:
+        description: "Type PROMOTE. Promotion is irreversible."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+  SF_CLI_VERSION: "2.157.8"
+  PACKAGE: apex-platform-logging
+
+jobs:
+  build:
+    name: build package version
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install -g "@salesforce/cli@${SF_CLI_VERSION}"
+
+      - name: Check the tag matches sfdx-project.json
+        run: |
+          node -e '
+            const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+            const dir = require("./sfdx-project.json").packageDirectories.find((d) => d.package === process.env.PACKAGE);
+            const version = dir.versionNumber.split(".").slice(0, 3).join(".");
+            if (tag !== version) {
+              console.error(`Tag v${tag} does not match versionNumber ${dir.versionNumber}. Bump sfdx-project.json first.`);
+              process.exit(1);
+            }
+          '
+
+      # Same JWT bearer auth as ci.yml; every value comes from repository secrets.
+      - name: Authenticate Dev Hub (JWT)
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+          SF_CONSUMER_KEY: ${{ secrets.SF_CONSUMER_KEY }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+        run: |
+          set -o pipefail
+          printf '%s\n' "$SF_JWT_KEY" > "$RUNNER_TEMP/server.key"
+          # The login prints the Dev Hub org Id; the redact filter masks it in the public log.
+          sf org login jwt \
+            --client-id "$SF_CONSUMER_KEY" \
+            --jwt-key-file "$RUNNER_TEMP/server.key" \
+            --username "$SF_DEVHUB_USERNAME" \
+            --alias devhub \
+            --set-default-dev-hub 2>&1 | bash scripts/redact-org-details.sh
+
+      # --code-coverage runs the package's own tests in a build org shaped by the package
+      # directory's definitionFile. Only the package directory is packaged.
+      # --installation-key-bypass: the library is open source, so there is no install key to protect.
+      - name: Create package version
+        id: create
+        run: |
+          sf package version create \
+            --package "$PACKAGE" \
+            --code-coverage \
+            --installation-key-bypass \
+            --wait 80 \
+            --json > version.json || { bash scripts/redact-org-details.sh < version.json; exit 1; }
+          version_id=$(node -p 'require("./version.json").result.SubscriberPackageVersionId')
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
+      - name: Check code coverage gate
+        env:
+          VERSION_ID: ${{ steps.create.outputs.version_id }}
+        run: |
+          sf package version report --package "$VERSION_ID" --json > report.json
+          node -e '
+            const r = require("./report.json").result;
+            const coverage = r.CodeCoverage ? r.CodeCoverage.apexCodeCoveragePercentage : "n/a";
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `### Package version\n\n| Version | Id | Coverage | Passed 75% gate |\n|---|---|---|---|\n` +
+              `| ${r.Version} | ${r.SubscriberPackageVersionId} | ${coverage}% | ${r.HasPassedCodeCoverageCheck} |\n`);
+            if (!r.HasPassedCodeCoverageCheck) { console.error("Coverage gate failed; this version cannot be promoted."); process.exit(1); }
+          '
+
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_ID: ${{ steps.create.outputs.version_id }}
+        run: |
+          {
+            echo "Beta unlocked package version, built from \`${GITHUB_REF_NAME}\`."
+            echo
+            echo '```bash'
+            echo "sf package install --package ${VERSION_ID} --target-org <alias> --wait 20 --no-prompt"
+            echo '```'
+            echo
+            echo "Beta versions install only in scratch orgs and sandboxes. Promote by running the"
+            echo "release workflow by hand with this Id."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --prerelease --title "${PACKAGE} ${GITHUB_REF_NAME} (beta)" --notes-file notes.md
+
+      - name: Delete key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/server.key"
+
+  promote:
+    name: promote package version
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check inputs
+        env:
+          VERSION_ID: ${{ inputs.version_id }}
+          TAG: ${{ inputs.tag }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$CONFIRM" = "PROMOTE" ] || { echo "Type PROMOTE to confirm."; exit 1; }
+          [[ "$VERSION_ID" =~ ^04t[A-Za-z0-9]{12}([A-Za-z0-9]{3})?$ ]] || { echo "Not a 04t version Id: $VERSION_ID"; exit 1; }
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG"; exit 1; }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install -g "@salesforce/cli@${SF_CLI_VERSION}"
+
+      - name: Authenticate Dev Hub (JWT)
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+          SF_CONSUMER_KEY: ${{ secrets.SF_CONSUMER_KEY }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+        run: |
+          set -o pipefail
+          printf '%s\n' "$SF_JWT_KEY" > "$RUNNER_TEMP/server.key"
+          # The login prints the Dev Hub org Id; the redact filter masks it in the public log.
+          sf org login jwt \
+            --client-id "$SF_CONSUMER_KEY" \
+            --jwt-key-file "$RUNNER_TEMP/server.key" \
+            --username "$SF_DEVHUB_USERNAME" \
+            --alias devhub \
+            --set-default-dev-hub 2>&1 | bash scripts/redact-org-details.sh
+
+      - name: Promote
+        env:
+          VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          set -o pipefail
+          sf package version promote --package "$VERSION_ID" --no-prompt 2>&1 | bash scripts/redact-org-details.sh
+
+      - name: Mark the GitHub release as the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          VERSION_ID: ${{ inputs.version_id }}
+        # Rewrite the notes too: the build job's beta wording ("scratch orgs and sandboxes only")
+        # is wrong once the version is released.
+        run: |
+          {
+            echo "Released unlocked package version, built from \`${TAG}\`."
+            echo
+            echo '```bash'
+            echo "sf package install --package ${VERSION_ID} --target-org <alias> --wait 20 --no-prompt"
+            echo '```'
+            echo
+            echo "Installs in any org, including production."
+          } > notes.md
+          gh release edit "$TAG" --prerelease=false --latest --title "${PACKAGE} ${TAG}" --notes-file notes.md
+
+      - name: Delete key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/server.key"

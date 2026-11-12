@@ -1,0 +1,25 @@
+# Salesforce Code Analyzer v5. CI fails on any violation of severity 2 (High) or 1 (Critical).
+# Rule overrides go under `rules:` with a comment explaining why.
+ignores:
+  files:
+    - "**/node_modules/**"
+    - "**/.sf/**"
+    - "**/.sfdx/**"
+    - "**/coverage/**"
+rules:
+  pmd:
+    # PMD's built-in rule rejects the `method_condition_result` test names the apex-standards
+    # testing skill requires. Take it out of the Recommended selection and run the copy in
+    # config/pmd/apex-naming.xml instead, which differs only in its test-method pattern.
+    MethodNamingConventions:
+      tags: ["CodeStyle", "Apex"]
+    TestAwareMethodNamingConventions:
+      tags: ["Recommended", "CodeStyle", "Apex", "Custom"]
+engines:
+  pmd:
+    custom_rulesets:
+      - config/pmd/apex-naming.xml
+  # The Flow Scanner engine needs Python 3.10+. It's off because this repo ships no Flow metadata.
+  # Turn it on (and add actions/setup-python to CI) as soon as a .flow-meta.xml file is added.
+  flow:
+    disable_engine: true
