@@ -1,33 +1,33 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-12 · Phase: roadmap step 2, PR #2 merged; PR #3 `feat/persistence` blocked on apex-core-lib 1.1.0
+Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#3 merged; PR #4 `feat/persistence` open on apex-core-lib 1.1.0-1
 
 ## Done
 
 - Repository scaffolded by hand from the `sf-repo-scaffold` template at `claude-code-salesforce-skills` `main` (back-port PR #8), plus the template `LICENSE` from E PR #9.
-- Depends on `apex-core-lib@1.0.0-1` (`04tak000000u0zpAAA`). `sfdx-project.json` adds `definitionFile` and `versionDescription`, which a package version build needs and the template lacks (an E final-pass item).
+- Depends on `apex-core-lib@1.1.0-1` (`04tak000000u3MbAAI`, adds upsert) since PR #4; `1.0.0-1` before that. `sfdx-project.json` adds `definitionFile` and `versionDescription`, which a package version build needs and the template lacks (an E final-pass item).
 - ADR 0001: B is its own unlocked package with no namespace.
-- Local dev org `apl-dev` (7 days, expires 2026-11-19): A installed, empty deploy OK.
+- Local dev org `apl-dev` (7 days, expires 2026-11-19): A upgraded to `1.1.0-1`; B deployed with `--source-dir force-app`.
 
 - PR #1 `chore/scaffold` merged; CI secrets set; `main` green.
 - PR #2 `feat/event-logger` (merged; the `main` run reused the PR result): `Log_Event__e` (Publish Immediately, high volume), `Logging_Setting__mdt` + `Default` row, `DI_Binding.Platform_Event_Logger` (ILogger → `PlatformEventLogger`), the `Log_Event_Publisher` permission set, `PlatformEventLogger`, `LogBuffer`, `LogEntry`, `LogContext`, `LoggingSettings`, `ILogEventPublisher` + `EventBusPublisher`, and ADRs 0002–0004. 40 tests and 100% coverage on B's classes in `apl-dev`.
 
+- GitHub PR #3 `docs/handoff-pr3-plan` merged: the persistence plan and D10–D13. (The plan called the persistence PR "#3"; on GitHub it is #4.)
+- **PR #4 `feat/persistence`** (open; Chad merges): `Log__c` (AutoNumber, OWD Private, `Log_Key__c` Text 80 External Id + Unique + case-sensitive), `LogEventTrigger` → `TriggerDispatcher`, `LogEventsDomain` + `Constructor` bound by `DI_Binding.Log_Events_Domain`, `LogBuffer.suppress()` / `resume()`, the `Log_Viewer` permission set, and ADR 0005. 62 tests and 100% coverage on B's classes in `apl-dev`.
+  - Proven in tests: Publish Immediately survives a caller's savepoint rollback (R3); `Test.getEventBus().deliver()` redelivers after `RetryableException`, so the retry path uses the real `EventBus.TriggerContext.retries` (4 deliveries, 4 commits, 1 give-up); the `Log_Key__c` describe is `idLookup`.
+  - Added beyond the plan: the domain keeps one row per key per batch (a repeated key fails the whole upsert), and a key falls back to `uuid-<EventUuid>`, or to null (insert) when the event has neither part.
+
 ## Next
 
-1. **apex-core-lib 1.1.0 (separate thread, repo A):** add `dmlUpsert(List<SObject> records, SObjectField externalIdField)` to `IDml`, implemented by `SystemDml`, `UserModeDml` and `StripInaccessibleDml`. Add `registerUpsert(List<SObject> records, SObjectField externalIdField)` to `IUnitOfWork` and `UnitOfWork` (upserts run after inserts, in commit order). This is Chad's choice (D10). The release notes must say that hand-written `IDml` or `IUnitOfWork` implementers have to add the methods; Stub API mocks are unaffected. Tag `v1.1.0` only with approval; Chad promotes it.
-2. **PR #3 `feat/persistence`** on `apex-core-lib@1.1.0-1` (bump `sfdx-project.json` and upgrade A in `apl-dev`). Plan:
-   - `force-app/persistence/objects/Log__c`: AutoNumber `LOG-{000000}`, OWD Private. Fields: `Level__c`, `Message__c`, `Exception_Type__c`, `Exception_Message__c`, `Stack_Trace__c`, `Request_Id__c`, `Sequence__c`, `Quiddity__c`, `Logged_At__c`, `Logged_By__c` (Lookup User, from the event's `CreatedById`), and `Log_Key__c` (Text 80, External Id, Unique: `Request_Id-Sequence`).
-   - `LogEventTrigger` (after insert) calls `TriggerDispatcher.run()`. `LogEventsDomain` + `Constructor`, bound by `DI_Binding.Log_Events_Domain` (Domain, `Log_Event__e`).
-   - The domain maps events to `Log__c` and commits through a `UnitOfWork` with `SystemDml` and `registerUpsert(rows, Log__c.Log_Key__c)`.
-   - **Retries (D11):** if the commit throws, throw `EventBus.RetryableException` while `retries < 3`, then write the batch to `DebugLogger` and move on. `IDml` is all-or-none, so a bad row fails its batch.
-   - **Recursion (D12):** a `LogBuffer` suppression flag is set around persistence (cleared in `finally`). Any `ILogger` call in the subscriber transaction, including A's `TriggerDispatcher` warning, goes to the debug log and is never published.
-   - **Visibility (D13):** OWD Private, plus a `Log_Viewer` permission set (Read, View All, field read).
-   - Tests:
-     - `LogEventsDomainTest` (stubbed UoW or `IDml`): mapping and key, 200 events in one commit, retry and give-up, suppression cleared on exception.
-     - `LogPersistenceIntegrationTest` (`Test.getEventBus().deliver()`): log, flush and deliver makes a row; a redelivery leaves one row; a caller rollback still persists (R3 in a test); a Minimum Access publisher with `Log_Event_Publisher`; visibility with and without `Log_Viewer`.
-     - `LogBufferTest`: a suppressed flush publishes nothing.
-   - ADR 0005 (persistence: D9–D13).
-3. PR #4 `feat/slack-alerts` (probe R2 first), PR #5 `feat/retention`, PR #6 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher` and `Log_Viewer`.
+1. Chad merges PR #4; check that the `main` run takes the reuse path.
+2. PR #5 `feat/slack-alerts`: probe R2 first (the Automated Process user's External Credential access) in `apl-dev`.
+3. PR #6 `feat/retention`: storage is the binding limit (R4).
+4. PR #7 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, and the `Trigger_Setting__mdt` kill switch for `Log_Event__e`.
+
+## Open decisions and known items
+
+- `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Splitting the fallback and limit logic out of `LogBuffer` would clear it; decide before the release.
+- Before B goes public: check README snippets against the code, then follow the going-public sequence (as for A).
 
 ## E final-pass items found here
 
@@ -48,7 +48,7 @@ Last updated: 2026-11-12 · Phase: roadmap step 2, PR #2 merged; PR #3 `feat/per
 | D8  | Config          | `Logging_Setting__mdt` `Default` row                                                                                                                                 | Hierarchy custom setting (recorded as the extension point)         |
 | D9  | Persistence     | `LogEvents` domain via A's `TriggerDispatcher`; `SystemDml` upsert on external Id `Request_Id + Sequence`; subscriber logs via `DebugLogger`; static recursion guard | User-mode DML; logging via `Application.Service` in the subscriber |
 
-### Decisions for PR #3 (2026-11-12)
+### Decisions for PR #4, persistence (2026-11-12)
 
 | #   | Decision         | Choice                                                                                | Rejected                                                                                                |
 | --- | ---------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
