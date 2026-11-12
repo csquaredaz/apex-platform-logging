@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Enabled__c</fullName>
+    <description>Untick to drop every entry without publishing. A kill switch, not a level.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <label>Enabled</label>
+    <defaultValue>true</defaultValue>
+    <type>Checkbox</type>
+</CustomField>
