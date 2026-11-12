@@ -18,6 +18,11 @@ Last updated: 2026-11-12 · Phase: roadmap step 2, PR #2 `feat/event-logger`
 2. PR #4 `feat/slack-alerts`: probe R2 first.
 3. PR #5 `feat/retention`, PR #6 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher`.
 
+## E final-pass items found here
+
+- CI ran `RunLocalTests` and gated on org-wide coverage. With a dependency that has no namespace (A), that runs A's packaged tests too. A's `ApplicationTest.service_logger_defaultsToDebugLogger` fails by design once B rebinds `ILogger`. B's CI now runs only its own `*Test` classes and gates on the coverage of its own classes (`package-coverage.txt`, which the reuse job reads). Back-port this to E's `sf-repo-scaffold` template for C and F.
+- When running tests in the dev org, use the same scope: `--class-names` with the repo's own tests.
+
 ## Approved design (2026-11-12, D1–D9)
 
 | #   | Decision        | Choice                                                                                                                                                               | Rejected                                                           |
