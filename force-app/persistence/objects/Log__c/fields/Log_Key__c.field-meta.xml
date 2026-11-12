@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Log_Key__c</fullName>
+    <caseSensitive>true</caseSensitive>
+    <description
+  >Request_Id__c + '-' + Sequence__c, or 'uuid-' + the event's EventUuid when either is missing. The upsert key: a redelivered event updates its row instead of adding one (ADR 0005). Case-sensitive, because request Ids are.</description>
+    <externalId>true</externalId>
+    <label>Log Key</label>
+    <length>80</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>
