@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-12 · Phase: roadmap step 2, PR 0 (scaffold)
+Last updated: 2026-11-12 · Phase: roadmap step 2, PR #2 `feat/event-logger`
 
 ## Done
 
@@ -9,11 +9,14 @@ Last updated: 2026-11-12 · Phase: roadmap step 2, PR 0 (scaffold)
 - ADR 0001: B is its own unlocked package with no namespace.
 - Local dev org `apl-dev` (7 days, expires 2026-11-19): A installed, empty deploy OK.
 
+- PR #1 `chore/scaffold` merged; CI secrets set; `main` green.
+- PR #2 `feat/event-logger`: `Log_Event__e` (Publish Immediately, high volume), `Logging_Setting__mdt` + `Default` row, `DI_Binding.Platform_Event_Logger` (ILogger → `PlatformEventLogger`), the `Log_Event_Publisher` permission set, `PlatformEventLogger`, `LogBuffer`, `LogEntry`, `LogContext`, `LoggingSettings`, `ILogEventPublisher` + `EventBusPublisher`, and ADRs 0002–0004. 40 tests and 100% coverage on B's classes in `apl-dev`.
+
 ## Next
 
-1. PR 0 `chore/scaffold`: Chad runs `gh secret set` (`SF_JWT_KEY`, `SF_CONSUMER_KEY`, `SF_DEVHUB_USERNAME`). Then mark the PR ready once and check the scratch-org job (deploy only; tests skipped until a test class exists).
-2. Before PR 1, probe in `apl-dev`: R3 (a Publish Immediately event is still delivered when the publisher throws) and the scratch org's Platform Event limits.
-3. PR 1 `feat/event-logger`, then PR 2 `feat/persistence`, PR 3 `feat/slack-alerts` (probe R2 first), PR 4 `feat/retention`, PR 5 `docs/example-and-readme`, then the release (tag only with approval).
+1. PR #3 `feat/persistence`: `Log__c` and the `LogEvents` domain through A's `TriggerDispatcher` (D9). Include an end-to-end test (`Test.getEventBus().deliver()`), and prove that delivery survives a rollback in a test as well as in the R3 probe.
+2. PR #4 `feat/slack-alerts`: probe R2 first.
+3. PR #5 `feat/retention`, PR #6 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher`.
 
 ## Approved design (2026-11-12, D1–D9)
 
@@ -33,8 +36,9 @@ Last updated: 2026-11-12 · Phase: roadmap step 2, PR 0 (scaffold)
 
 - **R1:** B packages `DI_Binding__mdt` records of A's type. The deploy shows it; the package build proves it at release.
 - **R2:** the Queueable enqueued from the Platform Event trigger runs as the Automated Process user, which needs External Credential principal access. Probe a permission set assignment to that user. Fallback: `PlatformEventSubscriberConfig` with a named user, documented as setup.
-- **R3:** a Publish Immediately event is delivered even when the publishing transaction throws.
-- **R4:** the scratch org's own Platform Event limits.
+- **R3 (proven 2026-11-12):** a Publish Immediately event is delivered after an uncaught exception and after a `LimitException`. Publish After Commit events are lost on rollback. Evidence is in ADR 0003.
+- **R4 (measured 2026-11-12):** the scratch org allows 250,000 high-volume publishes per hour and has 500 MB of data storage, so storage is the binding limit (retention, PR #5).
+- **R5 (found 2026-11-12, resolved):** `EventBus.publish` checks the running user's Create permission on `Log_Event__e`, even from Apex and from `without sharing` code. Create requires Read. Resolved with the packaged `Log_Event_Publisher` permission set (ADR 0003), pinned by two integration tests.
 
 ## Notes for the next session
 
