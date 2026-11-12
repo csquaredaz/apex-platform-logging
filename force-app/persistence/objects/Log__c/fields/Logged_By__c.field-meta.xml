@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Logged_By__c</fullName>
+    <description
+  >The user whose transaction logged the entry (the event's CreatedById). CreatedById on this row is the subscriber, the Automated Process user.</description>
+    <externalId>false</externalId>
+    <label>Logged By</label>
+    <referenceTo>User</referenceTo>
+    <relationshipName>Logs</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

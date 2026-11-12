@@ -5,7 +5,7 @@ Platform Event logging, persistence and Slack Block Kit alerts that plug into th
 ## Stack
 
 - Salesforce DX source format, API 68.0, an unlocked package with no namespace.
-- Depends on: apex-core-lib@1.0.0-1
+- Depends on: apex-core-lib@1.1.0-1
 - Standards plugin: `apex-standards`. Apply `apex-fflib-layers`, `apex-security` and `apex-testing` to all Apex, and run `apex-code-review` before opening a PR.
 
 ## Hard rules
