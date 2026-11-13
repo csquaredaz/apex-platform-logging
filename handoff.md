@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#5 merged; PR #6 `feat/retention` open
+Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#6 merged; PR #7 `docs/example-and-readme` open
 
 ## Done
 
@@ -20,19 +20,29 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#5 merged; PR #6 `fe
 - **PR #5 `feat/slack-alerts`** (merged as `8d1c9a7`; the `main` run took the reuse path): `SlackAlertSink` (the `IAlertSink` adapter; the `DI_Binding.Slack_Alert_Sink` row ships inactive), `SlackAlertJob` (Queueable + AllowsCallouts), `SlackAlertFinalizer`, `SlackMessageBuilder` (Block Kit, 50-block cap), the `AlertJobEnqueuer` seam, the `Slack` Named Credential and External Credential (Custom protocol, `Bot_Token` header formula, no token in source), the `Slack_Alert_Sender` permission set, `Logging_Setting__mdt.Slack_Channel__c`, alert raising in `LogEventsDomain`, and ADR 0006. 100 tests and 100% coverage on B's 13 classes in `apl-dev`.
   - R2 proven first with a throwaway probe (removed afterwards); see below and ADR 0006.
 
-- **PR #6 `feat/retention`** (open; Chad merges): `LogRetentionBatch` (Batchable + Stateful, 2,000-row chunks), `LogRetentionSchedule` (Schedulable plus idempotent `schedule()` / `schedule(cron)` / `unschedule()`), `ILogsSelector` + `LogsSelector` (system mode, `without sharing`, a query locator on `CreatedDate`) bound by `DI_Binding.Logs_Selector`, `CronTriggersSelector`, `RecycleBinPurge` (`IDoWork` → `Database.emptyRecycleBin`), `Logging_Setting__mdt.Retention_Days__c` (30) and `Is_Retention_Enabled__c` (true), and ADR 0007. 123 tests and 100% coverage on B's 17 classes in `apl-dev`, including a 200-row bulk case and a Minimum Access `runAs` run.
+- **PR #6 `feat/retention`** (merged as `260ed3f`; the `main` run took the reuse path): `LogRetentionBatch` (Batchable + Stateful, 2,000-row chunks), `LogRetentionSchedule` (Schedulable plus idempotent `schedule()` / `schedule(cron)` / `unschedule()`), `ILogsSelector` + `LogsSelector` (system mode, `without sharing`, a query locator on `CreatedDate`) bound by `DI_Binding.Logs_Selector`, `CronTriggersSelector`, `RecycleBinPurge` (`IDoWork` → `Database.emptyRecycleBin`), `Logging_Setting__mdt.Retention_Days__c` (30) and `Is_Retention_Enabled__c` (true), and ADR 0007. 123 tests and 100% coverage on B's 17 classes in `apl-dev`, including a 200-row bulk case and a Minimum Access `runAs` run.
   - R7, R8 and the running user were probed first with throwaway metadata (removed afterwards); see below and ADR 0007.
   - Also proven in tests: a savepoint rollback restores a job that `System.abortJob` aborted, so `schedule('bad cron')` keeps the existing job; `emptyRecycleBin` works from a `with sharing` class for a Minimum Access user.
 
+- **PR #7 `docs/example-and-readme`** (open; Chad merges):
+  - The README, written in full in the workspace order, with a setup checklist and a kill-switch table.
+  - `docs/case-study.md`.
+  - An unpackaged `example/` package directory, as in A: `OrderConfirmationService` logs through `ILogger`, and `OrderConfirmationIntegrationTest` proves an ERROR survives the rollback and raises one alert. The README snippet is copied from it.
+  - `scripts/org-test.sh`, so `npm run org:test` runs only this repo's `*Test` classes (the old `RunLocalTests` also ran A's tests).
+  - Sampling recorded as a deliberate omission in ADR 0004 and the README.
+  - 126 tests in `apl-dev`.
+  - Retention isn't scheduled by `org:setup`: a live job with `LogRetentionSchedule.JOB_NAME` would sit next to `LogRetentionScheduleTest`'s scheduling. The README documents the setup step.
+
 ## Next
 
-1. Chad merges PR #6; check that the `main` run takes the reuse path.
-2. PR #7 `docs/example-and-readme`. The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, the `Trigger_Setting__mdt` kill switch for `Log_Event__e`, the Slack setup in ADR 0006 (token, channel, `Slack_Alert_Sender` and `Log_Event_Publisher` for the Automated Process user, then activate the binding), and the retention setup in ADR 0007 (`Retention_Days__c`, `Log_Event_Publisher` for the scheduling admin, `LogRetentionSchedule.schedule()`, and the `Is_Retention_Enabled__c` kill switch).
-3. The release (tag only with approval). It proves R1 and R6.
+1. Chad merges PR #7; check that the `main` run takes the reuse path.
+2. PR #8 `refactor/log-buffer`: clear the `LogBuffer` Moderate (class cognitive complexity 52 against 50) by extracting the fallback and limit checks into a helper. Behaviour is pinned by the existing tests.
+3. The release (tag only with approval). It proves R1 and R6. The release PR adds install-from-package instructions to the README.
 
 ## Open decisions and known items
 
-- `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Splitting the fallback and limit logic out of `LogBuffer` would clear it; decide before the release.
+- `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Decided 2026-11-13: fix it in a separate `refactor/log-buffer` PR before the release.
+- Sampling (promised in the roadmap) is deliberately omitted (decided 2026-11-13, ADR 0004); the roadmap line was updated.
 - Before B goes public: check README snippets against the code, then follow the going-public sequence (as for A).
 
 ## E final-pass items found here

@@ -13,6 +13,9 @@
           "package": "apex-core-lib@1.1.0-1"
         }
       ]
+    },
+    {
+      "path": "example"
     }
   ],
   "name": "apex-platform-logging",

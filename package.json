@@ -13,7 +13,7 @@
     "test:unit": "sfdx-lwc-jest --coverage",
     "analyze": "sf code-analyzer run --config-file code-analyzer.yml --rule-selector Recommended --severity-threshold 2 --view table",
     "org:setup": "bash scripts/org-setup.sh",
-    "org:test": "sf apex run test --test-level RunLocalTests --code-coverage --result-format human --wait 30",
+    "org:test": "bash scripts/org-test.sh",
     "org:delete": "sf org delete scratch --no-prompt",
     "prepare": "husky"
   },
