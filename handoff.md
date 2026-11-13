@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#9 merged; **`v1.0.0` released as `1.0.0-2` (`04tak000000uEhpAAE`)**; PR #10 `docs/release-1.0.0` open
+Last updated: 2026-11-13 · Phase: roadmap step 2, **done**. Repo B is **public**. PRs #1–#10 merged; **`v1.0.0` released as `1.0.0-2` (`04tak000000uEhpAAE`)**
 
 ## Done
 
@@ -46,25 +46,46 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#9 merged; **`v1.0.0
     - 127/127 packaged tests pass
   - **R1 and R6 are fully proven.**
   - Chad promoted it with `workflow_dispatch` (run 43475422877). The version is released, and the GitHub release `v1.0.0` is Latest, with the changelog section in its notes.
-  - PR #10 `docs/release-1.0.0`: the README install section and dependency snippet, the `apex-platform-logging@1.0.0-2` alias, and this handoff.
+  - PR #10 `docs/release-1.0.0` (merged as `060e7ac`; the `main` run took the reuse path): the README install section and dependency snippet, the `apex-platform-logging@1.0.0-2` alias, and this handoff.
+  - With Chad's OK: the probe version `04tak000000uEGPAA2` was deleted, and so was every merged branch, after checking it was contained in `main`. Only `main` and `badges` remain.
+- **Going public (2026-11-13):**
+  - **Audit, read-only, no leaks found.**
+    - Full-history gitleaks covered all 49 commits on `main`, `badges`, the tag and the PR heads #1–#10, all of which are contained in `main`.
+    - A grep of the tree and every diff and commit message found no org Ids, user Ids, usernames, instance URLs, auth URLs or token-shaped strings. The only matches were the `@example.com` test fixture and `login.salesforce.com`.
+    - All 32 CI run logs are masked from the first run: `scripts/redact-org-details.sh` was in place from the scaffold.
+    - All 40 artifacts are clean. There are no JUnit files, and the summary keys are scrubbed in all 10 test-result sets.
+    - The job summaries hold only the outcome, counts, coverage and the public `04t`.
+    - The PR text for #1–#10, the `v1.0.0` release notes and the tag message are clean.
+    - The only Ids left are record Ids from the Dev Hub (`2SR…`) and from deleted scratch orgs (`0Af`, `01p`, `07M`, `707`), which can't identify an org.
+  - No leak-fix PR was needed.
+  - **CI runs: Chad kept all 32.** A deleted its older runs because they showed the Dev Hub org Id; none of B's do. The one failed run, 43316973906 on PR #2, records the failing test that led to the own-tests-only CI scope (`0fee0b8`).
+  - Final checks:
+    - The README's Setup, kill switches, Install, Quick start and `CHANGELOG.md` match the metadata and code.
+    - The Dev Hub confirms `1.0.0-2` is released.
+    - There are no TODOs, and every public class has ApexDoc.
+    - Code Analyzer reports 0 High, 0 Moderate and 127 Low findings: 122 `ApexUnitTestClassShouldHaveRunAs`, the intended `System.debug` fallback in `LogFallback`, and 4 in test classes.
+  - Chad made the repo public. The repo page, the CI badge (passing), the API badge and the License badge render, and GitHub detects MIT. The coverage badge's `raw.githubusercontent.com` URL briefly kept the 404 cached while the repo was private.
 
 ## Next
 
-1. Chad merges PR #10; check the `main` run.
-2. Optional cleanup, with Chad's OK: delete the unpromotable skip-validation probe version `04tak000000uEGPAA2`, and the merged branches.
-3. Before B goes public: check the README snippets against the code (done for Usage in PR #7), then the going-public sequence used for A. That is: fix any leak sources first; delete the old CI runs; scan the remaining logs and the PR text; then Chad flips visibility.
-4. After that, roadmap step 3: repo C `apex-event-ingestion`. Apply the E final-pass items first or along the way (see below).
+B is done. Next is roadmap step 3, repo C `apex-event-ingestion`: apply the E final-pass items below first, in E, so C's scaffold picks them up.
 
 ## Open decisions and known items
 
 - `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Fixed 2026-11-13 in PR #8 (`LogFallback` split out).
 - Sampling (promised in the roadmap) is deliberately omitted (decided 2026-11-13, ADR 0004); the roadmap line was updated.
-- Before B goes public: check README snippets against the code, then follow the going-public sequence (as for A).
+- B went public on 2026-11-13 (see Done).
+- Optional, not blocking: the 4 Low Code Analyzer findings in test classes (2 `ApexDoc`, 2 `AvoidNonRestrictiveQueries`).
 
 ## E final-pass items found here
 
 - CI ran `RunLocalTests` and gated on org-wide coverage. With a dependency that has no namespace (A), that runs A's packaged tests too. A's `ApplicationTest.service_logger_defaultsToDebugLogger` fails by design once B rebinds `ILogger`. B's CI now runs only its own `*Test` classes and gates on the coverage of its own classes (`package-coverage.txt`, which the reuse job reads). Back-port this to E's `sf-repo-scaffold` template for C and F.
 - When running tests in the dev org, use the same scope: `--class-names` with the repo's own tests.
+- The template `sfdx-project.json` lacks `definitionFile` and `versionDescription`, which a package version build needs.
+- The reuse job should treat a green PR run with no `apex-test-results` artifact (a repo's first PR, with no Apex tests yet) as reusable with empty coverage, instead of spending a fresh org.
+- The template `commitlint.config.mjs` has a trailing comma.
+- Back-port A's `CHANGELOG.md`, `scripts/changelog-section.sh` and the `release.yml` changelog gate, which B copied by hand.
+- The template's redact filter and result scrubbing were enough: B's going-public audit found nothing to fix. Keep them as they are.
 
 ## Approved design (2026-11-12, D1–D9)
 
