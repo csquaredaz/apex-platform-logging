@@ -44,5 +44,5 @@ The 32,768-character cap keeps three long fields well under the 1 MB event limit
 ## Consequences
 
 - PR 3's subscriber upserts on `Request_Id__c` + `Sequence__c`, so a redelivered event updates the same row instead of duplicating it.
-- Each entry is one event against the hourly allocation. Production orgs should run at `INFO` or above. PR 4 handles the storage side (retention).
+- Each entry is one event against the hourly allocation. Production orgs should run at `INFO` or above. Storage is handled by retention (ADR 0007, PR #6).
 - Adding a field later is backward compatible. Removing or retyping one needs a new package version and a subscriber change in the same release.
