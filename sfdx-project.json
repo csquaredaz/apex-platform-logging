@@ -24,6 +24,7 @@
   "sourceApiVersion": "68.0",
   "packageAliases": {
     "apex-core-lib@1.1.0-1": "04tak000000u3MbAAI",
-    "apex-platform-logging": "0Hoak0000007WWDCA2"
+    "apex-platform-logging": "0Hoak0000007WWDCA2",
+    "apex-platform-logging@1.0.0-2": "04tak000000uEhpAAE"
   }
 }
