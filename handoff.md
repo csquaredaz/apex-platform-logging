@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#7 merged; PR #8 `refactor/log-buffer` open
+Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#8 merged; PR #9 `chore/release-1.0.0` open
 
 ## Done
 
@@ -32,13 +32,20 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#7 merged; PR #8 `re
   - Sampling recorded as a deliberate omission in ADR 0004 and the README.
   - 126 tests in `apl-dev`.
   - Retention isn't scheduled by `org:setup`: a live job with `LogRetentionSchedule.JOB_NAME` would sit next to `LogRetentionScheduleTest`'s scheduling. The README documents the setup step.
-- **PR #8 `refactor/log-buffer`** (open; Chad merges): `LogFallback` now owns the failure path, `write` (to the debug log, with the reason) and `describe` (a failed save result, plus the `Log_Event_Publisher` hint), along with the test counters. `LogBuffer` keeps buffering, flush triggers, suppression and the limit guard. No behaviour change. Code Analyzer reports **zero Moderate** and zero High; 130 tests and 100% on 19 classes in `apl-dev`. ADR 0004 notes the split.
+- **PR #8 `refactor/log-buffer`** (merged as `c9b8f46`; the `main` run took the reuse path): `LogFallback` now owns the failure path, `write` (to the debug log, with the reason) and `describe` (a failed save result, plus the `Log_Event_Publisher` hint), along with the test counters. `LogBuffer` keeps buffering, flush triggers, suppression and the limit guard. No behaviour change. Code Analyzer reports **zero Moderate** and zero High; 130 tests and 100% on 19 classes in `apl-dev`. ADR 0004 notes the split.
+- **Release prep (2026-11-13):**
+  - Package `apex-platform-logging` created in the Dev Hub: `0Hoak0000007WWDCA2`, Unlocked, no namespace. Trap: `sf package create` rewrote the `force-app` package directory, dropping `default`, `dependencies` and `definitionFile` and resetting the version to `0.1.0`, so only the alias was kept.
+  - **R1 and R6 proven at packaging level** by a skip-validation build (`04tak000000uEGPAA2`, `1.0.0.1`; it used the 500/day budget, not the 6): `DI_Binding__mdt` rows of A's type and the Named and External Credentials package, with `HasMetadataRemoved: false`. Installing is proven only by the beta smoke test. That probe took build number 1, so the validated release will be **`1.0.0-2`**. The probe version can't be promoted.
+  - PR #9 `chore/release-1.0.0`: `CHANGELOG.md`, plus A's `scripts/changelog-section.sh` and the `release.yml` steps that use it (a tag without a changelog section fails before the build; both jobs add the section to the notes), the package alias, and this handoff.
 
 ## Next
 
-1. Chad merges PR #8; check that the `main` run takes the reuse path.
-2. The release (tag only with approval). It proves R1 (B packaging `DI_Binding__mdt` rows of A's type) and R6 (Named and External Credentials in a no-namespace unlocked package). Its PR adds install-from-package instructions to the README.
-3. Before B goes public: the going-public sequence (as for A).
+1. Chad merges PR #9; check the `main` run.
+2. Tag `v1.0.0` on `main`, with Chad's approval. `release.yml` builds the validated beta (`1.0.0-2`, one of the 6 daily creates) and publishes a pre-release.
+3. Smoke-test the beta in a throwaway scratch org (never `apl-dev`): install A `1.1.0-1`, then B; check that the permission sets, credentials, CMDT rows and trigger are installed; run B's tests. Chad deletes the org.
+4. Chad promotes with `workflow_dispatch` (`confirm=PROMOTE`).
+5. PR `docs/release-1.0.0`: README install section with the promoted `04t` Id, the handoff and memory. Optionally delete the skip-validation probe version `04tak000000uEGPAA2` (needs Chad's OK).
+6. Before B goes public: the going-public sequence (as for A).
 
 ## Open decisions and known items
 
