@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#8 merged; PR #9 `chore/release-1.0.0` open
+Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#9 merged; **`v1.0.0` released as `1.0.0-2` (`04tak000000uEhpAAE`)**; PR #10 `docs/release-1.0.0` open
 
 ## Done
 
@@ -36,16 +36,24 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#8 merged; PR #9 `ch
 - **Release prep (2026-11-13):**
   - Package `apex-platform-logging` created in the Dev Hub: `0Hoak0000007WWDCA2`, Unlocked, no namespace. Trap: `sf package create` rewrote the `force-app` package directory, dropping `default`, `dependencies` and `definitionFile` and resetting the version to `0.1.0`, so only the alias was kept.
   - **R1 and R6 proven at packaging level** by a skip-validation build (`04tak000000uEGPAA2`, `1.0.0.1`; it used the 500/day budget, not the 6): `DI_Binding__mdt` rows of A's type and the Named and External Credentials package, with `HasMetadataRemoved: false`. Installing is proven only by the beta smoke test. That probe took build number 1, so the validated release will be **`1.0.0-2`**. The probe version can't be promoted.
-  - PR #9 `chore/release-1.0.0`: `CHANGELOG.md`, plus A's `scripts/changelog-section.sh` and the `release.yml` steps that use it (a tag without a changelog section fails before the build; both jobs add the section to the notes), the package alias, and this handoff.
+  - PR #9 `chore/release-1.0.0` (merged as `135254f`; the `main` run took the reuse path): `CHANGELOG.md`, plus A's `scripts/changelog-section.sh` and the `release.yml` steps that use it (a tag without a changelog section fails before the build; both jobs add the section to the notes), the package alias, and this handoff.
+- **Release `v1.0.0` (2026-11-13):**
+  - Tag `v1.0.0` pushed at `135254f` with Chad's approval. Release run 43474023414 built `1.0.0-2` = `04tak000000uEhpAAE`, validated, with 100% code coverage.
+  - **Smoke test** in a throwaway scratch org `apl-smoke` (A `1.1.0-1`, then the beta; Chad deleted it afterwards):
+    - all 4 DI bindings present (Slack inactive); the Default setting; `LogEventTrigger`; the 3 permission sets; the `Slack` Named and External Credentials
+    - `ILogger` resolves to `PlatformEventLogger`; `example/` is absent
+    - a live INFO and ERROR round trip into `Log__c`; `schedule()` and `unschedule()` work
+    - 127/127 packaged tests pass
+  - **R1 and R6 are fully proven.**
+  - Chad promoted it with `workflow_dispatch` (run 43475422877). The version is released, and the GitHub release `v1.0.0` is Latest, with the changelog section in its notes.
+  - PR #10 `docs/release-1.0.0`: the README install section and dependency snippet, the `apex-platform-logging@1.0.0-2` alias, and this handoff.
 
 ## Next
 
-1. Chad merges PR #9; check the `main` run.
-2. Tag `v1.0.0` on `main`, with Chad's approval. `release.yml` builds the validated beta (`1.0.0-2`, one of the 6 daily creates) and publishes a pre-release.
-3. Smoke-test the beta in a throwaway scratch org (never `apl-dev`): install A `1.1.0-1`, then B; check that the permission sets, credentials, CMDT rows and trigger are installed; run B's tests. Chad deletes the org.
-4. Chad promotes with `workflow_dispatch` (`confirm=PROMOTE`).
-5. PR `docs/release-1.0.0`: README install section with the promoted `04t` Id, the handoff and memory. Optionally delete the skip-validation probe version `04tak000000uEGPAA2` (needs Chad's OK).
-6. Before B goes public: the going-public sequence (as for A).
+1. Chad merges PR #10; check the `main` run.
+2. Optional cleanup, with Chad's OK: delete the unpromotable skip-validation probe version `04tak000000uEGPAA2`, and the merged branches.
+3. Before B goes public: check the README snippets against the code (done for Usage in PR #7), then the going-public sequence used for A. That is: fix any leak sources first; delete the old CI runs; scan the remaining logs and the PR text; then Chad flips visibility.
+4. After that, roadmap step 3: repo C `apex-event-ingestion`. Apply the E final-pass items first or along the way (see below).
 
 ## Open decisions and known items
 
@@ -106,9 +114,9 @@ Probe (2026-11-12, `apl-dev`): `Database.upsert` on a generic `List<SObject>` wi
 
 ## Risks to probe
 
-- **R1:** B packages `DI_Binding__mdt` records of A's type. The deploy shows it; the package build proves it at release.
+- **R1 (proven 2026-11-13):** B packages `DI_Binding__mdt` records of A's type. Proven by the skip-validation build, the `1.0.0-2` build and an install into a clean scratch org.
 - **R2 (proven 2026-11-12, `apl-dev`):** the subscriber, the Queueable it enqueues and that job's Finalizer all run as the Automated Process user. Without principal access the callout throws a catchable `CalloutException` ("We couldn't access the credential(s)"). A permission set with `externalCredentialPrincipalAccesses`, assigned to that user by an Apex insert, lets the callout through. A header formula with no token still sends, so a missing token shows up as Slack's `not_authed`. `HttpCalloutMock` answers even for a Minimum Access user without principal access. Not proven: the Setup UI assignment route. The `PlatformEventSubscriberConfig` fallback isn't needed and is documented as an option. The probe metadata and rows were removed.
-- **R6 (new):** Named and External Credentials in a no-namespace unlocked package. The release package build proves it, like R1.
+- **R6 (proven 2026-11-13):** Named and External Credentials package and install in a no-namespace unlocked package (the `1.0.0-2` build and smoke test). Still unproven: a real Slack post after setting a token (free only).
 - **R3 (proven 2026-11-12):** a Publish Immediately event is delivered after an uncaught exception and after a `LimitException`. Publish After Commit events are lost on rollback. Evidence is in ADR 0003.
 - **R4 (measured 2026-11-12):** the scratch org allows 250,000 high-volume publishes per hour and has 500 MB of data storage, so storage is the binding limit (retention, PR #6, ADR 0007).
 - **R7 (probed 2026-11-13, `apl-dev`):** soft-deleted `Log__c` rows probably don't count against data storage, but the evidence is weak. The org's storage figure lags by about 30–60 s, so the readings come from a 30-second poll, and the soft-delete step itself wasn't repeated under the poller. `Database.emptyRecycleBin` from a batch removes them for good: undelete fails with `UNDELETE_FAILED`. `ALL ROWS` still returns emptied rows for minutes, so tests check the undelete result. Retention hard-deletes anyway (D20).
