@@ -58,4 +58,4 @@ Option 1 in each group.
 - People who read logs need `Log_Viewer`, and people whose code logs need `Log_Event_Publisher` (ADR 0003). The README documents both.
 - The R3 behaviour is now a test as well as a probe: `LogPersistenceIntegrationTest.callerRollsBack_entryStillPersists` rolls the caller back to a savepoint and still finds the row after delivery.
 - `Test.getEventBus().deliver()` redelivers after a `RetryableException`, so the retry path is tested with the real `EventBus.TriggerContext`: four deliveries, four commits, one give-up.
-- Storage is the binding limit (R4). Retention is the next PR.
+- Storage is the binding limit (R4). Retention deletes old rows (ADR 0007).

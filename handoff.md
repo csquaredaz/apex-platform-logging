@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#4 merged; PR #5 `feat/slack-alerts` open
+Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#5 merged; PR #6 `feat/retention` open
 
 ## Done
 
@@ -17,14 +17,18 @@ Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#4 merged; PR #5 `fe
   - Proven in tests: Publish Immediately survives a caller's savepoint rollback (R3); `Test.getEventBus().deliver()` redelivers after `RetryableException`, so the retry path uses the real `EventBus.TriggerContext.retries` (4 deliveries, 4 commits, 1 give-up); the `Log_Key__c` describe is `idLookup`.
   - Added beyond the plan: the domain keeps one row per key per batch (a repeated key fails the whole upsert), and a key falls back to `uuid-<EventUuid>`, or to null (insert) when the event has neither part.
 
-- **PR #5 `feat/slack-alerts`** (open; Chad merges): `SlackAlertSink` (the `IAlertSink` adapter; the `DI_Binding.Slack_Alert_Sink` row ships inactive), `SlackAlertJob` (Queueable + AllowsCallouts), `SlackAlertFinalizer`, `SlackMessageBuilder` (Block Kit, 50-block cap), the `AlertJobEnqueuer` seam, the `Slack` Named Credential and External Credential (Custom protocol, `Bot_Token` header formula, no token in source), the `Slack_Alert_Sender` permission set, `Logging_Setting__mdt.Slack_Channel__c`, alert raising in `LogEventsDomain`, and ADR 0006. 100 tests and 100% coverage on B's 13 classes in `apl-dev`.
+- **PR #5 `feat/slack-alerts`** (merged as `8d1c9a7`; the `main` run took the reuse path): `SlackAlertSink` (the `IAlertSink` adapter; the `DI_Binding.Slack_Alert_Sink` row ships inactive), `SlackAlertJob` (Queueable + AllowsCallouts), `SlackAlertFinalizer`, `SlackMessageBuilder` (Block Kit, 50-block cap), the `AlertJobEnqueuer` seam, the `Slack` Named Credential and External Credential (Custom protocol, `Bot_Token` header formula, no token in source), the `Slack_Alert_Sender` permission set, `Logging_Setting__mdt.Slack_Channel__c`, alert raising in `LogEventsDomain`, and ADR 0006. 100 tests and 100% coverage on B's 13 classes in `apl-dev`.
   - R2 proven first with a throwaway probe (removed afterwards); see below and ADR 0006.
+
+- **PR #6 `feat/retention`** (open; Chad merges): `LogRetentionBatch` (Batchable + Stateful, 2,000-row chunks), `LogRetentionSchedule` (Schedulable plus idempotent `schedule()` / `schedule(cron)` / `unschedule()`), `ILogsSelector` + `LogsSelector` (system mode, `without sharing`, a query locator on `CreatedDate`) bound by `DI_Binding.Logs_Selector`, `CronTriggersSelector`, `RecycleBinPurge` (`IDoWork` → `Database.emptyRecycleBin`), `Logging_Setting__mdt.Retention_Days__c` (30) and `Is_Retention_Enabled__c` (true), and ADR 0007. 123 tests and 100% coverage on B's 17 classes in `apl-dev`, including a 200-row bulk case and a Minimum Access `runAs` run.
+  - R7, R8 and the running user were probed first with throwaway metadata (removed afterwards); see below and ADR 0007.
+  - Also proven in tests: a savepoint rollback restores a job that `System.abortJob` aborted, so `schedule('bad cron')` keeps the existing job; `emptyRecycleBin` works from a `with sharing` class for a Minimum Access user.
 
 ## Next
 
-1. Chad merges PR #5; check that the `main` run takes the reuse path.
-2. PR #6 `feat/retention`: storage is the binding limit (R4).
-3. PR #7 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, the `Trigger_Setting__mdt` kill switch for `Log_Event__e`, and the Slack setup in ADR 0006 (token, channel, `Slack_Alert_Sender` and `Log_Event_Publisher` for the Automated Process user, then activate the binding).
+1. Chad merges PR #6; check that the `main` run takes the reuse path.
+2. PR #7 `docs/example-and-readme`. The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, the `Trigger_Setting__mdt` kill switch for `Log_Event__e`, the Slack setup in ADR 0006 (token, channel, `Slack_Alert_Sender` and `Log_Event_Publisher` for the Automated Process user, then activate the binding), and the retention setup in ADR 0007 (`Retention_Days__c`, `Log_Event_Publisher` for the scheduling admin, `LogRetentionSchedule.schedule()`, and the `Is_Retention_Enabled__c` kill switch).
+3. The release (tag only with approval). It proves R1 and R6.
 
 ## Open decisions and known items
 
@@ -49,6 +53,17 @@ Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#4 merged; PR #5 `fe
 | D7  | Callout timing  | `SlackAlertSink.send` enqueues `SlackAlertJob` (Queueable + Finalizer); one message per batch, 50-block cap, one 429 re-enqueue                                      | Synchronous callout in `send`                                      |
 | D8  | Config          | `Logging_Setting__mdt` `Default` row                                                                                                                                 | Hierarchy custom setting (recorded as the extension point)         |
 | D9  | Persistence     | `LogEvents` domain via A's `TriggerDispatcher`; `SystemDml` upsert on external Id `Request_Id + Sequence`; subscriber logs via `DebugLogger`; static recursion guard | User-mode DML; logging via `Application.Service` in the subscriber |
+
+### Decisions for PR #6, retention (2026-11-13, ADR 0007)
+
+| #   | Decision          | Choice                                                                                                                           | Rejected                                                                     |
+| --- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| D17 | Mechanism         | `Schedulable` + `Batchable` over a query locator, 2,000-row chunks                                                               | A self-chaining Queueable; a scheduled Flow                                  |
+| D18 | Scheduling        | `LogRetentionSchedule.schedule()` / `unschedule()` from anonymous Apex; idempotent, daily at 02:00 by default                    | The Setup "Schedule Apex" page only; a post-install script (impossible, R8)  |
+| D19 | Retention setting | One `Retention_Days__c`: default 30, blank or below 1 → 30, above 3650 → 3650                                                    | A longer error retention; one value per level (the recorded extension point) |
+| D20 | Delete path       | Hard delete in one Unit of Work: `registerDeleted` (`SystemDml`) then `registerWork(RecycleBinPurge)`                            | Soft delete only (crowds the Recycle Bin); `IDml.dmlHardDelete` in A 1.2.0   |
+| D21 | Kill switch       | `Is_Retention_Enabled__c`, default true, checked in `start` and every `execute`                                                  | Blank days means off; unscheduling only                                      |
+| D22 | Failures          | Catch a failed chunk, WARN with size and cause, continue; INFO summary in `finish`, plus a WARN if any chunk failed; never ERROR | Also a `BatchApexErrorEvent` trigger; letting it throw                       |
 
 ### Decisions for PR #5, Slack alerts (2026-11-12, ADR 0006)
 
@@ -77,7 +92,10 @@ Probe (2026-11-12, `apl-dev`): `Database.upsert` on a generic `List<SObject>` wi
 - **R2 (proven 2026-11-12, `apl-dev`):** the subscriber, the Queueable it enqueues and that job's Finalizer all run as the Automated Process user. Without principal access the callout throws a catchable `CalloutException` ("We couldn't access the credential(s)"). A permission set with `externalCredentialPrincipalAccesses`, assigned to that user by an Apex insert, lets the callout through. A header formula with no token still sends, so a missing token shows up as Slack's `not_authed`. `HttpCalloutMock` answers even for a Minimum Access user without principal access. Not proven: the Setup UI assignment route. The `PlatformEventSubscriberConfig` fallback isn't needed and is documented as an option. The probe metadata and rows were removed.
 - **R6 (new):** Named and External Credentials in a no-namespace unlocked package. The release package build proves it, like R1.
 - **R3 (proven 2026-11-12):** a Publish Immediately event is delivered after an uncaught exception and after a `LimitException`. Publish After Commit events are lost on rollback. Evidence is in ADR 0003.
-- **R4 (measured 2026-11-12):** the scratch org allows 250,000 high-volume publishes per hour and has 500 MB of data storage, so storage is the binding limit (retention, PR #5).
+- **R4 (measured 2026-11-12):** the scratch org allows 250,000 high-volume publishes per hour and has 500 MB of data storage, so storage is the binding limit (retention, PR #6, ADR 0007).
+- **R7 (probed 2026-11-13, `apl-dev`):** soft-deleted `Log__c` rows probably don't count against data storage, but the evidence is weak. The org's storage figure lags by about 30–60 s, so the readings come from a 30-second poll, and the soft-delete step itself wasn't repeated under the poller. `Database.emptyRecycleBin` from a batch removes them for good: undelete fails with `UNDELETE_FAILED`. `ALL ROWS` still returns emptied rows for minutes, so tests check the undelete result. Retention hard-deletes anyway (D20).
+- **R8 (proven 2026-11-13, CLI source):** an Unlocked package can't have a post-install script (`errorScriptsNotApplicableToUnlockedPackage` in `@salesforce/packaging`), so scheduling retention is a documented setup step (D18).
+- **Retention running user (proven 2026-11-13):** a scheduled batch runs as the user who called `System.schedule`. It needs no `Log__c` permission when the code is `without sharing` and in system mode; a system-mode query in a `with sharing` class sees no rows for a user without View All.
 - **R5 (found 2026-11-12, resolved):** `EventBus.publish` checks the running user's Create permission on `Log_Event__e`, even from Apex and from `without sharing` code. Create requires Read. Resolved with the packaged `Log_Event_Publisher` permission set (ADR 0003), pinned by two integration tests.
 
 ## Notes for the next session

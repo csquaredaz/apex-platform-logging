@@ -7,6 +7,32 @@ private class LoggingSettingsTest {
     Assert.isTrue(settings.isEnabled, 'Enabled by default');
     Assert.areEqual(LoggingLevel.DEBUG, settings.minimumLevel, 'DEBUG by default');
     Assert.areEqual(LoggingSettings.DEFAULT_BUFFER_SIZE, settings.bufferSize, 'Default buffer size');
+    Assert.isTrue(settings.isRetentionEnabled, 'Retention on by default');
+    Assert.areEqual(LoggingSettings.DEFAULT_RETENTION_DAYS, settings.retentionDays, 'Default retention');
+  }
+
+  @IsTest
+  static void constructor_configuredRetention_readsDaysAndSwitch() {
+    Logging_Setting__mdt row = LoggerTestFixtures.settings('DEBUG', 5);
+    row.Retention_Days__c = 7;
+    row.Is_Retention_Enabled__c = false;
+
+    LoggingSettings settings = new LoggingSettings(row);
+
+    Assert.areEqual(7, settings.retentionDays, 'Retention days');
+    Assert.isFalse(settings.isRetentionEnabled, 'Retention switched off');
+    Assert.isTrue(settings.isEnabled, 'The retention switch leaves logging on');
+  }
+
+  @IsTest
+  static void constructor_outOfRangeRetention_isClamped() {
+    Logging_Setting__mdt row = LoggerTestFixtures.settings('DEBUG', 5);
+    row.Retention_Days__c = 0;
+    Assert.areEqual(LoggingSettings.DEFAULT_RETENTION_DAYS, new LoggingSettings(row).retentionDays, 'Below 1');
+    row.Retention_Days__c = null;
+    Assert.areEqual(LoggingSettings.DEFAULT_RETENTION_DAYS, new LoggingSettings(row).retentionDays, 'Blank');
+    row.Retention_Days__c = 9999;
+    Assert.areEqual(LoggingSettings.MAX_RETENTION_DAYS, new LoggingSettings(row).retentionDays, 'Capped');
   }
 
   @IsTest
