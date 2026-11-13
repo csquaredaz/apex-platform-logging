@@ -38,7 +38,7 @@ private class LogBufferTest {
     Assert.areEqual(3, published.size(), 'One publish call carries the whole batch');
     Assert.areEqual('a', published[0].Message__c, 'Order is kept');
     Assert.areEqual(0, buffer.size(), 'The buffer is empty after the flush');
-    Assert.areEqual(0, LogBuffer.debugFallbackCount, 'Nothing fell back');
+    Assert.areEqual(0, LogFallback.count, 'Nothing fell back');
   }
 
   @IsTest
@@ -71,7 +71,7 @@ private class LogBufferTest {
 
     buffer.flush();
 
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'Only the failed entry goes to the debug log');
+    Assert.areEqual(1, LogFallback.count, 'Only the failed entry goes to the debug log');
     Assert.areEqual(0, buffer.size(), 'The buffer is empty either way');
   }
 
@@ -84,7 +84,7 @@ private class LogBufferTest {
 
     buffer.flush();
 
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'An entry without a result is not assumed published');
+    Assert.areEqual(1, LogFallback.count, 'An entry without a result is not assumed published');
   }
 
   @IsTest
@@ -96,7 +96,7 @@ private class LogBufferTest {
 
     buffer.flush();
 
-    Assert.areEqual(2, LogBuffer.debugFallbackCount, 'Every entry goes to the debug log');
+    Assert.areEqual(2, LogFallback.count, 'Every entry goes to the debug log');
     Assert.areEqual(0, buffer.size(), 'The buffer is empty, so the entries are not retried twice');
   }
 
@@ -109,7 +109,7 @@ private class LogBufferTest {
     buffer.flush();
 
     publisherMock.verify('publish', 0);
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'The entry goes to the debug log');
+    Assert.areEqual(1, LogFallback.count, 'The entry goes to the debug log');
   }
 
   @IsTest
@@ -122,7 +122,7 @@ private class LogBufferTest {
     buffer.flush();
 
     Assert.areEqual(1, publisherMock.callCount('publish'), 'One call above the reserve still publishes');
-    Assert.areEqual(0, LogBuffer.debugFallbackCount, 'Nothing fell back');
+    Assert.areEqual(0, LogFallback.count, 'Nothing fell back');
   }
 
   @IsTest
@@ -142,8 +142,8 @@ private class LogBufferTest {
 
     publisherMock.verify('publish', 0);
     Assert.areEqual(0, buffer.size(), 'A suppressed entry is not buffered either');
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'It went to the debug log');
-    Assert.areEqual(LogBuffer.SUPPRESSED_REASON, LogBuffer.lastFallbackReason, 'The reason says why');
+    Assert.areEqual(1, LogFallback.count, 'It went to the debug log');
+    Assert.areEqual(LogBuffer.SUPPRESSED_REASON, LogFallback.lastReason, 'The reason says why');
   }
 
   @IsTest
@@ -157,7 +157,7 @@ private class LogBufferTest {
 
     publisherMock.verify('publish', 0);
     Assert.areEqual(0, buffer.size(), 'The buffer is drained');
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'Buffered entries are never published while suppressed');
+    Assert.areEqual(1, LogFallback.count, 'Buffered entries are never published while suppressed');
   }
 
   @IsTest

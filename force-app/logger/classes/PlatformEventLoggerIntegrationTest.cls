@@ -29,7 +29,7 @@ private class PlatformEventLoggerIntegrationTest {
     Test.stopTest();
 
     Assert.areEqual(4, publishCalls, '200 entries at a buffer of 50 make 4 publish calls');
-    Assert.areEqual(0, LogBuffer.debugFallbackCount, 'Every entry was published');
+    Assert.areEqual(0, LogFallback.count, 'Every entry was published');
   }
 
   @IsTest
@@ -43,10 +43,10 @@ private class PlatformEventLoggerIntegrationTest {
     }
     Test.stopTest();
 
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'The event bus rejects the entry, so it goes to the debug log');
+    Assert.areEqual(1, LogFallback.count, 'The event bus rejects the entry, so it goes to the debug log');
     Assert.isTrue(
-      LogBuffer.lastFallbackReason.contains(LogBuffer.PERMISSION_HINT),
-      'The fallback names the fix: ' + LogBuffer.lastFallbackReason
+      LogFallback.lastReason.contains(LogFallback.PERMISSION_HINT),
+      'The fallback names the fix: ' + LogFallback.lastReason
     );
   }
 
@@ -62,6 +62,6 @@ private class PlatformEventLoggerIntegrationTest {
     }
     Test.stopTest();
 
-    Assert.areEqual(0, LogBuffer.debugFallbackCount, 'Published: ' + LogBuffer.lastFallbackReason);
+    Assert.areEqual(0, LogFallback.count, 'Published: ' + LogFallback.lastReason);
   }
 }

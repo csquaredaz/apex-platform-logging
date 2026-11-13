@@ -8,7 +8,7 @@
  *
  * Fail-safe rules: the buffer never throws. When fewer than `PUBLISH_CALLS_RESERVED`
  * publish-immediate calls are left, when the publisher throws, or when an event fails, the
- * affected entries go to the debug log instead. A `LimitException` can't be caught in Apex, which
+ * affected entries go to the debug log instead, through `LogFallback`. A `LimitException` can't be caught in Apex, which
  * is why the limit is checked before publishing rather than handled after.
  *
  * Suppression (ADR 0005, D12): between `suppress()` and `resume()`, entries go to the debug log
@@ -26,9 +26,6 @@ public with sharing class LogBuffer {
    */
   public static final Integer PUBLISH_CALLS_RESERVED = 5;
 
-  /** @description Added to an access failure, because a missing assignment is the usual cause. */
-  public static final String PERMISSION_HINT = 'Assign the Log_Event_Publisher permission set to this user.';
-
   /** @description The fallback reason for entries logged while publishing is suppressed. */
   public static final String SUPPRESSED_REASON = 'publishing suppressed in the log subscriber';
   private static LogBuffer instance;
@@ -36,10 +33,6 @@ public with sharing class LogBuffer {
 
   @TestVisible
   private static Integer publishCallsLeftOverride;
-  @TestVisible
-  private static Integer debugFallbackCount = 0;
-  @TestVisible
-  private static String lastFallbackReason;
 
   private final ILogEventPublisher publisher;
   private final List<LogEntry> entries = new List<LogEntry>();
@@ -124,17 +117,17 @@ public with sharing class LogBuffer {
     entries.clear();
 
     if (suppressed) {
-      writeToDebugLog(batch, SUPPRESSED_REASON);
+      LogFallback.write(batch, SUPPRESSED_REASON);
       return;
     }
     if (publishCallsLeft() <= PUBLISH_CALLS_RESERVED) {
-      writeToDebugLog(batch, 'publish-immediate limit reserve reached');
+      LogFallback.write(batch, 'publish-immediate limit reserve reached');
       return;
     }
     try {
       publishBatch(batch);
     } catch (Exception publishFailure) {
-      writeToDebugLog(batch, 'publish threw ' + publishFailure.getTypeName() + ': ' + publishFailure.getMessage());
+      LogFallback.write(batch, 'publish threw ' + publishFailure.getTypeName() + ': ' + publishFailure.getMessage());
     }
   }
 
@@ -147,7 +140,7 @@ public with sharing class LogBuffer {
     for (Integer i = 0; i < batch.size(); i++) {
       Database.SaveResult result = results == null || i >= results.size() ? null : results[i];
       if (result == null || !result.isSuccess()) {
-        writeToDebugLog(new List<LogEntry>{ batch[i] }, 'publish failed: ' + describe(result));
+        LogFallback.write(new List<LogEntry>{ batch[i] }, 'publish failed: ' + LogFallback.describe(result));
       }
     }
   }
@@ -157,27 +150,5 @@ public with sharing class LogBuffer {
       return publishCallsLeftOverride;
     }
     return Limits.getLimitPublishImmediateDML() - Limits.getPublishImmediateDML();
-  }
-
-  private static String describe(Database.SaveResult result) {
-    if (result == null) {
-      return 'no result returned';
-    }
-    List<String> messages = new List<String>();
-    for (Database.Error error : result.getErrors()) {
-      messages.add(error.getStatusCode() + ' ' + error.getMessage());
-      if (error.getStatusCode() == StatusCode.CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY) {
-        messages.add(PERMISSION_HINT);
-      }
-    }
-    return String.join(messages, '; ');
-  }
-
-  private static void writeToDebugLog(List<LogEntry> batch, String reason) {
-    lastFallbackReason = reason;
-    for (LogEntry entry : batch) {
-      System.debug(LoggingLevel.ERROR, 'LogBuffer fallback (' + reason + '): ' + entry.toDebugString());
-      debugFallbackCount++;
-    }
   }
 }

@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#6 merged; PR #7 `docs/example-and-readme` open
+Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#7 merged; PR #8 `refactor/log-buffer` open
 
 ## Done
 
@@ -24,7 +24,7 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#6 merged; PR #7 `do
   - R7, R8 and the running user were probed first with throwaway metadata (removed afterwards); see below and ADR 0007.
   - Also proven in tests: a savepoint rollback restores a job that `System.abortJob` aborted, so `schedule('bad cron')` keeps the existing job; `emptyRecycleBin` works from a `with sharing` class for a Minimum Access user.
 
-- **PR #7 `docs/example-and-readme`** (open; Chad merges):
+- **PR #7 `docs/example-and-readme`** (merged as `f75bf69`; the `main` run took the reuse path):
   - The README, written in full in the workspace order, with a setup checklist and a kill-switch table.
   - `docs/case-study.md`.
   - An unpackaged `example/` package directory, as in A: `OrderConfirmationService` logs through `ILogger`, and `OrderConfirmationIntegrationTest` proves an ERROR survives the rollback and raises one alert. The README snippet is copied from it.
@@ -32,16 +32,17 @@ Last updated: 2026-11-13 · Phase: roadmap step 2. PRs #1–#6 merged; PR #7 `do
   - Sampling recorded as a deliberate omission in ADR 0004 and the README.
   - 126 tests in `apl-dev`.
   - Retention isn't scheduled by `org:setup`: a live job with `LogRetentionSchedule.JOB_NAME` would sit next to `LogRetentionScheduleTest`'s scheduling. The README documents the setup step.
+- **PR #8 `refactor/log-buffer`** (open; Chad merges): `LogFallback` now owns the failure path, `write` (to the debug log, with the reason) and `describe` (a failed save result, plus the `Log_Event_Publisher` hint), along with the test counters. `LogBuffer` keeps buffering, flush triggers, suppression and the limit guard. No behaviour change. Code Analyzer reports **zero Moderate** and zero High; 130 tests and 100% on 19 classes in `apl-dev`. ADR 0004 notes the split.
 
 ## Next
 
-1. Chad merges PR #7; check that the `main` run takes the reuse path.
-2. PR #8 `refactor/log-buffer`: clear the `LogBuffer` Moderate (class cognitive complexity 52 against 50) by extracting the fallback and limit checks into a helper. Behaviour is pinned by the existing tests.
-3. The release (tag only with approval). It proves R1 and R6. The release PR adds install-from-package instructions to the README.
+1. Chad merges PR #8; check that the `main` run takes the reuse path.
+2. The release (tag only with approval). It proves R1 (B packaging `DI_Binding__mdt` rows of A's type) and R6 (Named and External Credentials in a no-namespace unlocked package). Its PR adds install-from-package instructions to the README.
+3. Before B goes public: the going-public sequence (as for A).
 
 ## Open decisions and known items
 
-- `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Decided 2026-11-13: fix it in a separate `refactor/log-buffer` PR before the release.
+- `LogBuffer` has one Moderate Code Analyzer finding: the class's total cognitive complexity is 52 against a threshold of 50 (no method is above 8). CI gates at High. Fixed 2026-11-13 in PR #8 (`LogFallback` split out).
 - Sampling (promised in the roadmap) is deliberately omitted (decided 2026-11-13, ADR 0004); the roadmap line was updated.
 - Before B goes public: check README snippets against the code, then follow the going-public sequence (as for A).
 

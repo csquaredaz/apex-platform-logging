@@ -28,6 +28,7 @@ Option 1, because it spends a publish call per batch rather than per line, and i
 - **Shared buffer.** `LogBuffer.current()` is a static singleton, so every `PlatformEventLogger` instance in a transaction writes to one buffer.
 - **Flush triggers:** `flush()`, every `error()`, and reaching `Buffer_Size__c` (default 50, clamped to 1–500).
 - **Limit guard.** `LogBuffer` stops publishing when 5 or fewer publish-immediate calls remain (`PUBLISH_CALLS_RESERVED`). The host application always keeps its last calls, and logging never triggers the `LimitException`.
+- **Fallback.** `LogFallback` writes unpublished entries to the debug log at `ERROR` with the reason, and describes a failed save result, adding the `Log_Event_Publisher` hint to an access error. `LogBuffer` decides when to fall back; `LogFallback` says why (split out 2026-11-13, PR #8, to keep `LogBuffer` under Code Analyzer's cognitive-complexity threshold).
 - **Never throw.** A publisher exception, a failed `SaveResult`, a missing result, or the reserve being reached all send the affected entries to `System.debug(ERROR, ...)` with the reason. The buffer is emptied first, so an entry is never published twice.
 - **Configuration.** The `Logging_Setting__mdt` `Default` row holds `Is_Enabled__c` (a kill switch), `Minimum_Level__c` (default `DEBUG`) and `Buffer_Size__c`. Its fields are subscriber-controlled, so an admin can change them in production. A missing row or a blank field falls back to the defaults (D8 in `handoff.md`).
 
