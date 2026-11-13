@@ -36,5 +36,6 @@ A hierarchy custom setting would allow per-user or per-profile levels. It was re
 ## Consequences
 
 - Callers should call `flush()` at the end of each unit of work, as A's `ILogger` documents.
+- **Sampling is deliberately omitted** (2026-11-13). Volume is controlled by `Minimum_Level__c`, and storage is bounded by retention (ADR 0007). Random sampling would drop exactly the entries needed to follow one request. If it's ever needed, decide per transaction rather than per entry, and apply it only below `WARN`.
 - A transaction that has used 145 publish-immediate calls on its own events logs only to the debug log. That is visible in the fallback reason, "publish-immediate limit reserve reached".
 - Unit tests stub `ILogEventPublisher` with A's `Mocks`, so every fallback path is tested without a real publish. `PlatformEventLoggerIntegrationTest` pins the real behaviour: 200 entries at a buffer of 50 make exactly 4 publish calls.
