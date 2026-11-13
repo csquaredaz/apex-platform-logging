@@ -9,12 +9,13 @@ public class LoggerTestFixtures {
    * @description A settings row.
    * @param minimumLevel The minimum level name, for example `WARN`.
    * @param bufferSize The buffer size.
-   * @return An in-memory `Logging_Setting__mdt` row, enabled.
+   * @return An in-memory `Logging_Setting__mdt` row, enabled, with retention enabled at the default.
    */
   public static Logging_Setting__mdt settings(String minimumLevel, Integer bufferSize) {
     return new Logging_Setting__mdt(
       DeveloperName = 'Test',
       Is_Enabled__c = true,
+      Is_Retention_Enabled__c = true,
       Minimum_Level__c = minimumLevel,
       Buffer_Size__c = bufferSize
     );

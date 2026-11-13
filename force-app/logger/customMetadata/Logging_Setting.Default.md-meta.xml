@@ -15,7 +15,15 @@
         <value xsi:type="xsd:boolean">true</value>
     </values>
     <values>
+        <field>Is_Retention_Enabled__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+    <values>
         <field>Minimum_Level__c</field>
         <value xsi:type="xsd:string">DEBUG</value>
+    </values>
+    <values>
+        <field>Retention_Days__c</field>
+        <value xsi:type="xsd:double">30</value>
     </values>
 </CustomMetadata>

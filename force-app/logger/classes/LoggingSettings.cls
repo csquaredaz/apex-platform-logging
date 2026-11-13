@@ -1,8 +1,8 @@
 /**
  * @description The logger's configuration, read once per transaction from the `Default` row of
  * `Logging_Setting__mdt` (ADR 0004). A missing row or blank field falls back to a safe default,
- * so a bad configuration never stops the logger: enabled, DEBUG, a buffer of 50, and no Slack
- * channel (alerts are then logged, not sent).
+ * so a bad configuration never stops the logger: enabled, DEBUG, a buffer of 50, no Slack
+ * channel (alerts are then logged, not sent), and retention on at 30 days (ADR 0007).
  *
  * A hierarchy custom setting would allow per-user levels; it's the recorded extension point.
  * @group Logging
@@ -14,6 +14,10 @@ public with sharing class LoggingSettings {
   public static final Integer DEFAULT_BUFFER_SIZE = 50;
   /** @description The largest buffer size allowed. */
   public static final Integer MAX_BUFFER_SIZE = 500;
+  /** @description The retention in days when the row has none. */
+  public static final Integer DEFAULT_RETENTION_DAYS = 30;
+  /** @description The longest retention allowed, in days (about ten years). */
+  public static final Integer MAX_RETENTION_DAYS = 3650;
 
   private static final Map<String, Integer> RANK_BY_LEVEL = new Map<String, Integer>{
     'DEBUG' => 1,
@@ -32,6 +36,10 @@ public with sharing class LoggingSettings {
   public final Integer bufferSize;
   /** @description The Slack channel alerts go to (ADR 0006); null when blank. */
   public final String slackChannel;
+  /** @description False stops `LogRetentionBatch` deleting rows (ADR 0007). */
+  public final Boolean isRetentionEnabled;
+  /** @description Days a `Log__c` row is kept; between 1 and `MAX_RETENTION_DAYS`. */
+  public final Integer retentionDays;
 
   /**
    * @description The settings for this transaction, read from metadata on first use.
@@ -59,8 +67,10 @@ public with sharing class LoggingSettings {
     minimumLevel = row == null || !RANK_BY_LEVEL.containsKey(row.Minimum_Level__c)
       ? LoggingLevel.DEBUG
       : LoggingLevel.valueOf(row.Minimum_Level__c);
-    bufferSize = clampBufferSize(row == null ? null : row.Buffer_Size__c);
+    bufferSize = clamp(row == null ? null : row.Buffer_Size__c, DEFAULT_BUFFER_SIZE, MAX_BUFFER_SIZE);
     slackChannel = row == null || String.isBlank(row.Slack_Channel__c) ? null : row.Slack_Channel__c.trim();
+    isRetentionEnabled = row == null || row.Is_Retention_Enabled__c;
+    retentionDays = clamp(row == null ? null : row.Retention_Days__c, DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS);
   }
 
   /**
@@ -73,10 +83,11 @@ public with sharing class LoggingSettings {
     return isEnabled && rank != null && rank >= RANK_BY_LEVEL.get(minimumLevel.name());
   }
 
-  private static Integer clampBufferSize(Decimal configured) {
+  // Blank or below 1 means the default; above the maximum means the maximum.
+  private static Integer clamp(Decimal configured, Integer defaultValue, Integer maximum) {
     if (configured == null || configured < 1) {
-      return DEFAULT_BUFFER_SIZE;
+      return defaultValue;
     }
-    return Math.min(configured.intValue(), MAX_BUFFER_SIZE);
+    return Math.min(configured.intValue(), maximum);
   }
 }
