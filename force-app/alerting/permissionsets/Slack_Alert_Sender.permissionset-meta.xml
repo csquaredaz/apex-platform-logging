@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description
+  >Lets SlackAlertJob use the Slack External Credential. Assign it to the Automated Process user (subscriber alerts) and to any user whose code calls IAlertSink directly (ADR 0006).</description>
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>Slack-Slack_Bot</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Slack Alert Sender</label>
+</PermissionSet>
