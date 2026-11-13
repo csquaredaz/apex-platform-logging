@@ -158,6 +158,120 @@ private class LogEventsDomainTest {
     Assert.isFalse(LogBuffer.isSuppressed(), 'Suppression is cleared after a successful commit');
   }
 
+  private static Mocks useAlertSink() {
+    Mocks sink = new Mocks();
+    Application.Service.setMock(IAlertSink.class, sink.stub(IAlertSink.class));
+    return sink;
+  }
+
+  private static Log_Event__e eventAt(String level, Integer sequence) {
+    Log_Event__e event = LoggerTestFixtures.deliveredEvent(REQUEST_ID, sequence, null);
+    event.Level__c = level;
+    return event;
+  }
+
+  @IsTest
+  static void onAfterInsert_errorAmongOtherLevels_sendsOneCriticalAlert() {
+    useMocks();
+    Mocks sink = useAlertSink();
+    List<Log_Event__e> batch = new List<Log_Event__e>{
+      eventAt('INFO', 1),
+      eventAt('ERROR', 2),
+      eventAt('WARN', 3),
+      eventAt('DEBUG', 4)
+    };
+
+    new LogEventsDomain(batch).onAfterInsert();
+
+    sink.verify('send', 1);
+    List<Alert> alerts = (List<Alert>) sink.argumentsOf('send', 0)[0];
+    Assert.areEqual(1, alerts.size(), 'Only ERROR alerts (D15)');
+    Assert.areEqual(Alert.Severity.CRITICAL, alerts[0].severity, 'ERROR maps to CRITICAL');
+    Assert.areEqual('Booking shipment for order 42', alerts[0].title, 'Title from the message');
+    Assert.areEqual('System.DmlException: Required field missing', alerts[0].detail, 'Exception type and message');
+    Assert.areEqual('SYNCHRONOUS | Log_Key__c ' + REQUEST_ID + '-2', alerts[0].source, 'Context and log key');
+  }
+
+  @IsTest
+  static void onAfterInsert_200Errors_sendsOneBatchOf200() {
+    useMocks();
+    Mocks sink = useAlertSink();
+
+    new LogEventsDomain(events(200)).onAfterInsert();
+
+    sink.verify('send', 1);
+    Assert.areEqual(200, ((List<Alert>) sink.argumentsOf('send', 0)[0]).size(), 'One send per batch (D7)');
+  }
+
+  @IsTest
+  static void onAfterInsert_noErrors_sendsNothing() {
+    useMocks();
+    Mocks sink = useAlertSink();
+
+    new LogEventsDomain(new List<Log_Event__e>{ eventAt('WARN', 1) }).onAfterInsert();
+
+    Assert.areEqual(0, sink.callCount('send'), 'Only ERROR alerts');
+  }
+
+  @IsTest
+  static void onAfterInsert_batchWillBeRetried_sendsNothing() {
+    useMocks();
+    Mocks sink = useAlertSink();
+    unitOfWorkMock.stubThrow('commitWork', new DmlException('Row lock'));
+    LogEventsDomain.retriesOverride = 0;
+
+    try {
+      new LogEventsDomain(events(1)).onAfterInsert();
+      Assert.fail('Expected a redelivery request');
+    } catch (EventBus.RetryableException expected) {
+      sink.verify('send', 0);
+    }
+  }
+
+  @IsTest
+  static void onAfterInsert_batchGivenUp_stillAlerts() {
+    useMocks();
+    Mocks sink = useAlertSink();
+    unitOfWorkMock.stubThrow('commitWork', new DmlException('Storage limit exceeded'));
+    LogEventsDomain.retriesOverride = LogEventsDomain.MAX_RETRIES;
+
+    new LogEventsDomain(events(2)).onAfterInsert();
+
+    Assert.areEqual(1, sink.callCount('send'), 'A given-up batch still alerts');
+  }
+
+  @IsTest
+  static void onAfterInsert_sinkThrows_warnsAndKeepsPersistence() {
+    useMocks();
+    Mocks sink = useAlertSink();
+    sink.stubThrow('send', new CalloutException('Unexpected'));
+
+    new LogEventsDomain(events(1)).onAfterInsert();
+
+    unitOfWorkMock.verify('commitWork', 1);
+    Assert.areEqual(1, fallback.entries(LoggingLevel.WARN).size(), 'The sink failure is logged');
+    Assert.isTrue(fallback.entries(LoggingLevel.WARN)[0].message.contains('Unexpected'), 'With its cause');
+    Assert.isFalse(LogBuffer.isSuppressed(), 'Suppression is cleared');
+  }
+
+  @IsTest
+  static void toAlerts_titleFallbacks() {
+    Log__c multiLine = new Log__c(Level__c = 'ERROR', Message__c = '  First line\nSecond line');
+    Log__c noMessage = new Log__c(Level__c = 'ERROR', Exception_Type__c = 'System.LimitException');
+    Log__c nothing = new Log__c(Level__c = 'ERROR', Exception_Message__c = 'Only a message');
+    Log__c longMessage = new Log__c(Level__c = 'ERROR', Message__c = 'x'.repeat(400));
+
+    List<Alert> alerts = LogEventsDomain.toAlerts(new List<Log__c>{ multiLine, noMessage, nothing, longMessage });
+
+    Assert.areEqual('First line', alerts[0].title, 'The first line of the message');
+    Assert.areEqual('System.LimitException', alerts[1].title, 'Else the exception type');
+    Assert.areEqual('System.LimitException', alerts[1].detail, 'Type alone when there is no message');
+    Assert.areEqual('ERROR log entry', alerts[2].title, 'Else a fixed title');
+    Assert.areEqual('Only a message', alerts[2].detail, 'Exception message alone');
+    Assert.areEqual('UNKNOWN | Log_Key__c (none)', alerts[2].source, 'Blank context and key are named');
+    Assert.areEqual(LogEventsDomain.MAX_TITLE_LENGTH, alerts[3].title.length(), 'Title cut at 150');
+  }
+
   @IsTest
   static void constructor_buildsTheDomainForLogEvents() {
     IDomain domain = new LogEventsDomain.Constructor().construct(events(1));
