@@ -6,7 +6,7 @@
       "package": "apex-platform-logging",
       "versionName": "ver 1.0",
       "versionNumber": "1.0.0.NEXT",
-      "versionDescription": "Platform Event logging, persistence and Slack alerts for the apex-core-lib ports.",
+      "versionDescription": "Platform Event logging, persistence, Slack alerts and retention for the apex-core-lib ports.",
       "definitionFile": "config/project-scratch-def.json",
       "dependencies": [
         {
@@ -23,6 +23,7 @@
   "sfdcLoginUrl": "https://login.salesforce.com",
   "sourceApiVersion": "68.0",
   "packageAliases": {
-    "apex-core-lib@1.1.0-1": "04tak000000u3MbAAI"
+    "apex-core-lib@1.1.0-1": "04tak000000u3MbAAI",
+    "apex-platform-logging": "0Hoak0000007WWDCA2"
   }
 }
