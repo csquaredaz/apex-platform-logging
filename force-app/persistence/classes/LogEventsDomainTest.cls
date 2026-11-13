@@ -154,7 +154,7 @@ private class LogEventsDomainTest {
 
     Assert.isTrue(unitOfWork.suppressedDuringCommit, 'LogBuffer is suppressed while persisting');
     publisherMock.verify('publish', 0);
-    Assert.areEqual(LogBuffer.SUPPRESSED_REASON, LogBuffer.lastFallbackReason, 'The entry went to the debug log');
+    Assert.areEqual(LogBuffer.SUPPRESSED_REASON, LogFallback.lastReason, 'The entry went to the debug log');
     Assert.isFalse(LogBuffer.isSuppressed(), 'Suppression is cleared after a successful commit');
   }
 

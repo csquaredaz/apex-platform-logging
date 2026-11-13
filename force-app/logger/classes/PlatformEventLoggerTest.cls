@@ -94,6 +94,6 @@ private class PlatformEventLoggerTest {
 
     logger.error('Carrier rejected the booking', null);
 
-    Assert.areEqual(1, LogBuffer.debugFallbackCount, 'The entry went to the debug log instead');
+    Assert.areEqual(1, LogFallback.count, 'The entry went to the debug log instead');
   }
 }
