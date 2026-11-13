@@ -52,6 +52,27 @@ npm run org:test    # this repo's Apex tests with coverage
 
 You need the Salesforce CLI and a default Dev Hub (`sf config set target-dev-hub=<alias>`). `org:test` runs this repo's `*Test` classes only. apex-core-lib has no namespace, so `RunLocalTests` would also run its packaged tests, and some of those assert defaults that this package overrides on purpose.
 
+### Install the package in your org
+
+Latest release: [`v1.0.0`](https://github.com/csquaredaz/apex-platform-logging/releases/tag/v1.0.0), package version `1.0.0-2`. Install apex-core-lib first:
+
+```bash
+sf package install --package 04tak000000u3MbAAI --target-org <alias> --wait 20 --no-prompt   # apex-core-lib 1.1.0-1
+sf package install --package 04tak000000uEhpAAE --target-org <alias> --wait 20 --no-prompt   # apex-platform-logging 1.0.0-2
+```
+
+Both are unlocked packages with no namespace, and both install in any org, including production. Then follow [Setup](#setup). As a dependency in another project's `sfdx-project.json`:
+
+```json
+"dependencies": [{ "package": "apex-core-lib@1.1.0-1" }, { "package": "apex-platform-logging@1.0.0-2" }],
+"packageAliases": {
+  "apex-core-lib@1.1.0-1": "04tak000000u3MbAAI",
+  "apex-platform-logging@1.0.0-2": "04tak000000uEhpAAE"
+}
+```
+
+The release notes for each version come from [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Usage
 
 From [`example/orders/classes/OrderConfirmationService.cls`](example/orders/classes/OrderConfirmationService.cls). The `example/` directory is compiled and tested in CI but never packaged.
