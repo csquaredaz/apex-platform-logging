@@ -1,6 +1,6 @@
 # Handoff: apex-platform-logging
 
-Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#3 merged; PR #4 `feat/persistence` open on apex-core-lib 1.1.0-1
+Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#4 merged; PR #5 `feat/slack-alerts` open
 
 ## Done
 
@@ -13,16 +13,18 @@ Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#3 merged; PR #4 `fe
 - PR #2 `feat/event-logger` (merged; the `main` run reused the PR result): `Log_Event__e` (Publish Immediately, high volume), `Logging_Setting__mdt` + `Default` row, `DI_Binding.Platform_Event_Logger` (ILogger → `PlatformEventLogger`), the `Log_Event_Publisher` permission set, `PlatformEventLogger`, `LogBuffer`, `LogEntry`, `LogContext`, `LoggingSettings`, `ILogEventPublisher` + `EventBusPublisher`, and ADRs 0002–0004. 40 tests and 100% coverage on B's classes in `apl-dev`.
 
 - GitHub PR #3 `docs/handoff-pr3-plan` merged: the persistence plan and D10–D13. (The plan called the persistence PR "#3"; on GitHub it is #4.)
-- **PR #4 `feat/persistence`** (open; Chad merges): `Log__c` (AutoNumber, OWD Private, `Log_Key__c` Text 80 External Id + Unique + case-sensitive), `LogEventTrigger` → `TriggerDispatcher`, `LogEventsDomain` + `Constructor` bound by `DI_Binding.Log_Events_Domain`, `LogBuffer.suppress()` / `resume()`, the `Log_Viewer` permission set, and ADR 0005. 62 tests and 100% coverage on B's classes in `apl-dev`.
+- **PR #4 `feat/persistence`** (merged as `cc4b925`; the `main` run took the reuse path): `Log__c` (AutoNumber, OWD Private, `Log_Key__c` Text 80 External Id + Unique + case-sensitive), `LogEventTrigger` → `TriggerDispatcher`, `LogEventsDomain` + `Constructor` bound by `DI_Binding.Log_Events_Domain`, `LogBuffer.suppress()` / `resume()`, the `Log_Viewer` permission set, and ADR 0005. 62 tests and 100% coverage on B's classes in `apl-dev`.
   - Proven in tests: Publish Immediately survives a caller's savepoint rollback (R3); `Test.getEventBus().deliver()` redelivers after `RetryableException`, so the retry path uses the real `EventBus.TriggerContext.retries` (4 deliveries, 4 commits, 1 give-up); the `Log_Key__c` describe is `idLookup`.
   - Added beyond the plan: the domain keeps one row per key per batch (a repeated key fails the whole upsert), and a key falls back to `uuid-<EventUuid>`, or to null (insert) when the event has neither part.
 
+- **PR #5 `feat/slack-alerts`** (open; Chad merges): `SlackAlertSink` (the `IAlertSink` adapter; the `DI_Binding.Slack_Alert_Sink` row ships inactive), `SlackAlertJob` (Queueable + AllowsCallouts), `SlackAlertFinalizer`, `SlackMessageBuilder` (Block Kit, 50-block cap), the `AlertJobEnqueuer` seam, the `Slack` Named Credential and External Credential (Custom protocol, `Bot_Token` header formula, no token in source), the `Slack_Alert_Sender` permission set, `Logging_Setting__mdt.Slack_Channel__c`, alert raising in `LogEventsDomain`, and ADR 0006. 100 tests and 100% coverage on B's 13 classes in `apl-dev`.
+  - R2 proven first with a throwaway probe (removed afterwards); see below and ADR 0006.
+
 ## Next
 
-1. Chad merges PR #4; check that the `main` run takes the reuse path.
-2. PR #5 `feat/slack-alerts`: probe R2 first (the Automated Process user's External Credential access) in `apl-dev`.
-3. PR #6 `feat/retention`: storage is the binding limit (R4).
-4. PR #7 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, and the `Trigger_Setting__mdt` kill switch for `Log_Event__e`.
+1. Chad merges PR #5; check that the `main` run takes the reuse path.
+2. PR #6 `feat/retention`: storage is the binding limit (R4).
+3. PR #7 `docs/example-and-readme`, then the release (tag only with approval). The README must document assigning `Log_Event_Publisher` and `Log_Viewer`, the `Trigger_Setting__mdt` kill switch for `Log_Event__e`, and the Slack setup in ADR 0006 (token, channel, `Slack_Alert_Sender` and `Log_Event_Publisher` for the Automated Process user, then activate the binding).
 
 ## Open decisions and known items
 
@@ -48,6 +50,16 @@ Last updated: 2026-11-12 · Phase: roadmap step 2. PRs #1–#3 merged; PR #4 `fe
 | D8  | Config          | `Logging_Setting__mdt` `Default` row                                                                                                                                 | Hierarchy custom setting (recorded as the extension point)         |
 | D9  | Persistence     | `LogEvents` domain via A's `TriggerDispatcher`; `SystemDml` upsert on external Id `Request_Id + Sequence`; subscriber logs via `DebugLogger`; static recursion guard | User-mode DML; logging via `Application.Service` in the subscriber |
 
+### Decisions for PR #5, Slack alerts (2026-11-12, ADR 0006)
+
+D5–D7 above are implemented as decided. The new decisions:
+
+| #   | Decision     | Choice                                                                                                                  | Rejected                                                                                                 |
+| --- | ------------ | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| D14 | Alert origin | The subscriber: after a batch is persisted or given up, its `ERROR` rows become `CRITICAL` alerts, one `send` per batch | Explicit `IAlertSink` calls only; `PlatformEventLogger.error()` (its enqueue rolls back with the caller) |
+| D15 | Loop guard   | Only `ERROR` alerts (fixed); the sink, job and finalizer log failures at `WARN` only                                    | A configurable level with `LogBuffer` suppressed in the job; a source field on `Log_Event__e`            |
+| D16 | Finalizer    | On an unhandled failure: WARN with the cause and each lost alert title; no retry                                        | Retry once (could post twice)                                                                            |
+
 ### Decisions for PR #4, persistence (2026-11-12)
 
 | #   | Decision         | Choice                                                                                | Rejected                                                                                                |
@@ -62,13 +74,15 @@ Probe (2026-11-12, `apl-dev`): `Database.upsert` on a generic `List<SObject>` wi
 ## Risks to probe
 
 - **R1:** B packages `DI_Binding__mdt` records of A's type. The deploy shows it; the package build proves it at release.
-- **R2:** the Queueable enqueued from the Platform Event trigger runs as the Automated Process user, which needs External Credential principal access. Probe a permission set assignment to that user. Fallback: `PlatformEventSubscriberConfig` with a named user, documented as setup.
+- **R2 (proven 2026-11-12, `apl-dev`):** the subscriber, the Queueable it enqueues and that job's Finalizer all run as the Automated Process user. Without principal access the callout throws a catchable `CalloutException` ("We couldn't access the credential(s)"). A permission set with `externalCredentialPrincipalAccesses`, assigned to that user by an Apex insert, lets the callout through. A header formula with no token still sends, so a missing token shows up as Slack's `not_authed`. `HttpCalloutMock` answers even for a Minimum Access user without principal access. Not proven: the Setup UI assignment route. The `PlatformEventSubscriberConfig` fallback isn't needed and is documented as an option. The probe metadata and rows were removed.
+- **R6 (new):** Named and External Credentials in a no-namespace unlocked package. The release package build proves it, like R1.
 - **R3 (proven 2026-11-12):** a Publish Immediately event is delivered after an uncaught exception and after a `LimitException`. Publish After Commit events are lost on rollback. Evidence is in ADR 0003.
 - **R4 (measured 2026-11-12):** the scratch org allows 250,000 high-volume publishes per hour and has 500 MB of data storage, so storage is the binding limit (retention, PR #5).
 - **R5 (found 2026-11-12, resolved):** `EventBus.publish` checks the running user's Create permission on `Log_Event__e`, even from Apex and from `without sharing` code. Create requires Read. Resolved with the packaged `Log_Event_Publisher` permission set (ADR 0003), pinned by two integration tests.
 
 ## Notes for the next session
 
+- The `apl-dev` admin has `Log_Viewer` (assigned during the R2 probe), so `Log__c` can be queried from the CLI.
 - `ServiceFactory.newInstance` returns a new instance on every call (no caching), so the logger's buffer must be static, per transaction.
 - `TriggerDispatcher.run()` works for a Platform Event trigger. Bind the `LogEvents` domain with a `DI_Binding__mdt` row whose Kind is Domain. A's `Trigger_Setting__mdt` then gives persistence a kill switch.
 - `sf org display` is blocked in auto mode, so API 68.0 came from A's verified value.
