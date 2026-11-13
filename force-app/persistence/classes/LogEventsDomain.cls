@@ -15,6 +15,11 @@
  *
  * Recursion (D12): `LogBuffer` is suppressed for the whole of `onAfterInsert`, so any `ILogger`
  * call made while persisting goes to the debug log and never publishes another log event.
+ *
+ * Alerts (D14, ADR 0006): once a batch is persisted or given up, its `ERROR` rows become
+ * `CRITICAL` alerts, sent with one `IAlertSink.send` call. A batch that asks for redelivery
+ * sends nothing, so a retried batch alerts once. With the Slack binding inactive (D5) the sink
+ * is A's `NoOpAlertSink`. A failing sink is logged at WARN and never stops persistence.
  * @group Persistence
  */
 public with sharing class LogEventsDomain extends SObjectDomain {
@@ -24,6 +29,10 @@ public with sharing class LogEventsDomain extends SObjectDomain {
   public static final String KEY_SEPARATOR = '-';
   /** @description Prefixes the event UUID in `Log_Key__c` when the request Id or sequence is missing. */
   public static final String UUID_KEY_PREFIX = 'uuid-';
+  /** @description The only level that raises an alert (D15); not configurable, which keeps alerting loop-free. */
+  public static final String ALERT_LEVEL = 'ERROR';
+  /** @description Longest alert title; Slack shows the first line of a message as the title. */
+  public static final Integer MAX_TITLE_LENGTH = 150;
 
   /** Test seam: the retry count, because `EventBus.TriggerContext` exists only in a real delivery. */
   @TestVisible
@@ -56,7 +65,9 @@ public with sharing class LogEventsDomain extends SObjectDomain {
   public override void onAfterInsert() {
     LogBuffer.suppress();
     try {
-      persist(toLogs());
+      List<Log__c> rows = toLogs();
+      persist(rows);
+      raiseAlerts(rows);
     } finally {
       LogBuffer.resume();
     }
@@ -139,6 +150,53 @@ public with sharing class LogEventsDomain extends SObjectDomain {
     for (Log__c row : rows) {
       fallbackLogger.warn('Unpersisted log ' + row.Log_Key__c + ' [' + row.Level__c + '] ' + row.Message__c);
     }
+  }
+
+  /**
+   * @description The alerts for a batch: one `CRITICAL` alert per `ERROR` row, in order.
+   * Title: the message's first line (else the exception type). Detail: the exception type and
+   * message. Source: the execution context and the log key, which finds the row in `Log__c`.
+   * @param rows The rows of one batch.
+   * @return The alerts; empty when no row is an error.
+   */
+  @TestVisible
+  private static List<Alert> toAlerts(List<Log__c> rows) {
+    List<Alert> alerts = new List<Alert>();
+    for (Log__c row : rows) {
+      if (row.Level__c == ALERT_LEVEL) {
+        alerts.add(new Alert(Alert.Severity.CRITICAL, titleOf(row), detailOf(row), sourceOf(row)));
+      }
+    }
+    return alerts;
+  }
+
+  private static void raiseAlerts(List<Log__c> rows) {
+    List<Alert> alerts = toAlerts(rows);
+    if (alerts.isEmpty()) {
+      return;
+    }
+    try {
+      ((IAlertSink) Application.Service.newInstance(IAlertSink.class)).send(alerts);
+    } catch (Exception sinkFailure) {
+      fallbackLogger.warn('Alerting failed for ' + alerts.size() + ' ERROR entries: ' + sinkFailure.getMessage());
+    }
+  }
+
+  private static String titleOf(Log__c row) {
+    String title = String.isNotBlank(row.Message__c) ? row.Message__c.trim().split('\\n')[0] : row.Exception_Type__c;
+    return String.isBlank(title) ? 'ERROR log entry' : title.abbreviate(MAX_TITLE_LENGTH);
+  }
+
+  private static String detailOf(Log__c row) {
+    if (String.isBlank(row.Exception_Type__c)) {
+      return row.Exception_Message__c;
+    }
+    return row.Exception_Type__c + (String.isBlank(row.Exception_Message__c) ? '' : ': ' + row.Exception_Message__c);
+  }
+
+  private static String sourceOf(Log__c row) {
+    String context = String.isBlank(row.Quiddity__c) ? 'UNKNOWN' : row.Quiddity__c;
+    return context + ' | Log_Key__c ' + (row.Log_Key__c == null ? '(none)' : row.Log_Key__c);
   }
 
   private static Integer retries() {

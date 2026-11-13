@@ -1,7 +1,8 @@
 /**
  * @description The logger's configuration, read once per transaction from the `Default` row of
  * `Logging_Setting__mdt` (ADR 0004). A missing row or blank field falls back to a safe default,
- * so a bad configuration never stops the logger: enabled, DEBUG, a buffer of 50.
+ * so a bad configuration never stops the logger: enabled, DEBUG, a buffer of 50, and no Slack
+ * channel (alerts are then logged, not sent).
  *
  * A hierarchy custom setting would allow per-user levels; it's the recorded extension point.
  * @group Logging
@@ -29,6 +30,8 @@ public with sharing class LoggingSettings {
   public final LoggingLevel minimumLevel;
   /** @description Entries held before an automatic flush; between 1 and `MAX_BUFFER_SIZE`. */
   public final Integer bufferSize;
+  /** @description The Slack channel alerts go to (ADR 0006); null when blank. */
+  public final String slackChannel;
 
   /**
    * @description The settings for this transaction, read from metadata on first use.
@@ -57,6 +60,7 @@ public with sharing class LoggingSettings {
       ? LoggingLevel.DEBUG
       : LoggingLevel.valueOf(row.Minimum_Level__c);
     bufferSize = clampBufferSize(row == null ? null : row.Buffer_Size__c);
+    slackChannel = row == null || String.isBlank(row.Slack_Channel__c) ? null : row.Slack_Channel__c.trim();
   }
 
   /**
